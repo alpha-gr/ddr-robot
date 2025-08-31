@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Joystick Robot</title>
+  <style>
+    body {
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      background: #111;
+      color: #fff;
+      font-family: sans-serif;
+    }
+    #joystick {
+      width: 200px;
+      height: 200px;
+      background: #222;
+      border-radius: 50%;
+      position: relative;
+    }
+    #status {
+      margin-top: 20px;
+      font-size: 1.2em;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.9.0/nipplejs.min.js"></script>
+</head>
+<body>
+  <h2>Joystick Robot</h2>
+  <div id="joystick"></div>
+  <div id="status">Disconnesso</div>
+
+  <script>
+    const ws = new WebSocket("ws://" + "192.168.1.16" + ":8765");
+    ws.onopen = () => { document.getElementById("status").innerText = "Connesso"; };
+    ws.onclose = () => { document.getElementById("status").innerText = "Disconnesso"; };
+
+    const manager = nipplejs.create({
+      zone: document.getElementById('joystick'),
+      mode: 'static',
+      position: { left: '50%', top: '50%' },
+      color: 'cyan',
+      size: 200
+    });
+
+    let lastSent = 0;
+    manager.on("move", (evt, data) => {
+      if (!data || !data.vector) return;
+      // vettore normalizzato [-1,1]
+      let x = data.vector.x.toFixed(2);
+      let y = data.vector.y.toFixed(2);
+      // limita l’invio a ogni 100ms
+      let now = Date.now();
+      if (now - lastSent > 100) {
+        payload = JSON.stringify({x: x, y: y});
+        ws.send(payload);
+        // console.log(payload);
+        lastSent = now;
+      }
+    });
+
+    manager.on("end", () => {
+      ws.send(JSON.stringify({x: 0, y: 0}));
+    });
+  </script>
+</body>
+</html>

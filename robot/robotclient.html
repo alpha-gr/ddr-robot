@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telecomando Robot</title>
+<style>
+body {
+    font-family: sans-serif;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    background: #f5f5f5;
+}
+.grid {
+    display: grid;
+    grid-template-columns: repeat(3, 80px);
+    grid-template-rows: repeat(3, 80px);
+    gap: 10px;
+}
+button {
+    font-size: 2em;
+    border-radius: 12px;
+    border: none;
+    background-color: #4ca0af;
+    color: white;
+    touch-action: manipulation;
+}
+button:active {
+    background-color: #367f8b;
+}
+</style>
+</head>
+<body>
+<h2>Telecomando Robot</h2>
+<div class="grid">
+  <div></div>
+  <button id="forward">⬆️</button>
+  <div></div>
+  <button id="left">⬅️</button>
+  <button id="stop">⏹️</button>
+  <button id="right">➡️</button>
+  <div></div>
+  <button id="back">⬇️</button>
+  <div></div>
+</div>
+
+<script>
+const ws = new WebSocket('ws://' + "192.168.1.16" + ':8765');
+ws.onopen = ()=>console.log('WebSocket connesso');
+ws.onmessage = msg=>console.log('Srv:', msg.data);
+
+function send(cmd){
+    if(ws.readyState===1) ws.send(cmd);
+}
+
+// Mappa pulsanti -> comandi WS
+const mapping = {
+    forward: 'forward',
+    back: 'backward',
+    left: 'left',
+    right: 'right',
+    stop: 'stop',
+    back: 'backward'
+};
+
+// Touch + click
+['forward','left','stop','right','back'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.addEventListener('touchstart', e=>{ e.preventDefault(); send(mapping[id]); });
+    el.addEventListener('mousedown', ()=>send(mapping[id]));
+    el.addEventListener('touchend', e=>{ e.preventDefault(); send('stop'); });
+    el.addEventListener('mouseup', ()=>send('stop'));
+});
+</script>
+</body>
+</html>
