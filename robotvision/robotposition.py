@@ -70,12 +70,21 @@ def order_points_clockwise(points):
     return sorted(points, key=angle_from_center)
 
 def main():
-    # Apri la webcam
+    # Apri la webcam con risoluzione alta
     cap = cv2.VideoCapture(0)
     
     if not cap.isOpened():
         print("Errore: impossibile aprire la webcam")
         return
+
+    # Imposta risoluzione alta della webcam
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+    
+    # Verifica risoluzione effettiva
+    actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    print(f"Risoluzione webcam: {actual_width}x{actual_height}")
 
     # Dizionario ArUco
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
@@ -85,10 +94,38 @@ def main():
     print("Marker 0: Robot (giallo)")
     print("Marker 1,2,3,4: Arena (colorati)")
 
+    # Crea finestra ridimensionabile con dimensioni proporzionate
+    window_name = "DDR Robot Tracker - HD"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 1600, 900)  # Dimensione HD iniziale
+    
+    # Aggiungi controlli sulla finestra
+    print("Controlli:")
+    print("  'q' - Esci")
+    print("  'f' - Fullscreen/Finestra")
+    print("  's' - Screenshot")
+    print("  Trascina i bordi per ridimensionare")
+    
+    is_fullscreen = False
+    
+    # Per calcolare FPS
+    import time
+    fps_counter = 0
+    fps_start_time = time.time()
+    current_fps = 0
+
     while True:
         ret, frame = cap.read()
         if not ret:
             break
+
+        # Calcola FPS
+        fps_counter += 1
+        current_time = time.time()
+        if current_time - fps_start_time >= 1.0:  # Aggiorna ogni secondo
+            current_fps = fps_counter / (current_time - fps_start_time)
+            fps_counter = 0
+            fps_start_time = current_time
 
         # Converti in grigio
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -129,9 +166,9 @@ def main():
                     
                     # Cerchio giallo per il robot
                     cv2.circle(frame, center, 12, (0, 255, 255), -1)
-                    cv2.putText(frame, f"ROBOT", 
-                               (center[0] + 20, center[1] - 10), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                    cv2.putText(frame, f"R", 
+                               (center[0] + 18, center[1] + 5), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
                 
                 elif marker_id in [1, 2, 3, 4]:
                     # Arena markers - Colori diversi
@@ -145,9 +182,9 @@ def main():
                     color = colors[marker_id]
                     
                     cv2.circle(frame, center, 8, color, -1)
-                    cv2.putText(frame, f"A{marker_id}", 
-                               (center[0] + 15, center[1] - 10), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                    cv2.putText(frame, f"{marker_id}", 
+                               (center[0] + 12, center[1] + 5), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 2)
 
         # Calcola le coordinate del robot nell'arena
         if robot_center and len(arena_markers) >= 2:
@@ -169,11 +206,11 @@ def main():
                 # Linea spessa bianca per il perimetro
                 cv2.line(frame, start_point, end_point, (255, 255, 255), 4)
                 
-                # Aggiungi numero al centro della linea per debug
+                # Aggiungi numero al centro della linea per debug (più piccolo)
                 mid_x = (start_point[0] + end_point[0]) // 2
                 mid_y = (start_point[1] + end_point[1]) // 2
-                cv2.putText(frame, str(i+1), (mid_x-10, mid_y-10), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+                cv2.putText(frame, str(i+1), (mid_x-5, mid_y-5), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 0), 1)
             
             # Se abbiamo tutti e 4 i marker, riempi leggermente l'area
             if len(arena_markers) == 4:
@@ -182,41 +219,71 @@ def main():
                 cv2.fillPoly(overlay, [points_array], (100, 100, 100))
                 cv2.addWeighted(overlay, 0.2, frame, 0.8, 0, frame)
         
-        # Informazioni sullo schermo
+        # Informazioni sullo schermo con testo compatto
+        frame_height, frame_width = frame.shape[:2]
+        
+        # Testo più piccolo e posizionato in alto a destra per non coprire l'arena
         info_lines = [
-            f"Arena markers: {len(arena_markers)}/4",
-            f"Robot: {'Rilevato' if robot_center else 'Non trovato'}",
-            f"Marker arena: {sorted(arena_markers.keys()) if arena_markers else 'Nessuno'}"
+            f"FPS: {current_fps:.1f}",
+            f"Arena: {len(arena_markers)}/4",
+            f"Robot: {'OK' if robot_center else 'NO'}",
+            f"IDs: {sorted(arena_markers.keys()) if arena_markers else '[]'}"
         ]
         
         # Aggiungi informazioni del robot se disponibili
         if robot_center:
-            info_lines.append(f"Robot Pixel: ({robot_center[0]}, {robot_center[1]})")
+            info_lines.append(f"Pixel: ({robot_center[0]}, {robot_center[1]})")
             if robot_theta is not None:
-                info_lines.append(f"Robot Theta: {robot_theta:.1f}°")
+                info_lines.append(f"theta: {robot_theta:.0f}")
             if robot_arena_x is not None and robot_arena_y is not None:
-                info_lines.append(f"Arena Coords: ({robot_arena_x:.1f}, {robot_arena_y:.1f})")
+                info_lines.append(f"Arena: ({robot_arena_x:.0f}, {robot_arena_y:.0f})")
             else:
-                info_lines.append("Arena Coords: Servono ≥2 marker arena")
+                info_lines.append("Arena: <non disponibile>")
         
-        # Disegna le informazioni con sfondo semi-trasparente per leggibilità
-        info_bg_height = len(info_lines) * 35 + 20
+        # Posiziona il pannello info in alto a destra, testo piccolo
+        info_panel_width = 250
+        info_panel_height = len(info_lines) * 30 + 10
+        start_x = frame_width - info_panel_width - 10
+        start_y = 10
+        
+        # Sfondo semi-trasparente compatto
         overlay = frame.copy()
-        cv2.rectangle(overlay, (5, 5), (450, info_bg_height), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+        cv2.rectangle(overlay, (start_x, start_y), 
+                     (start_x + info_panel_width, start_y + info_panel_height), 
+                     (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
         
-        y_offset = 30
+        # Testo piccolo e compatto
+        y_offset = start_y + 30
         for line in info_lines:
-            cv2.putText(frame, line, (10, y_offset), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            y_offset += 35
+            cv2.putText(frame, line, (start_x + 5, y_offset), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            y_offset += 30
 
-        # Mostra il frame
-        cv2.imshow("Multi-Marker Arena Test", frame)
+        # Mostra il frame nella finestra ridimensionabile
+        cv2.imshow(window_name, frame)
 
-        # Esci con 'q'
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        # Gestione input avanzata
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
             break
+        elif key == ord('f'):
+            # Toggle fullscreen
+            is_fullscreen = not is_fullscreen
+            if is_fullscreen:
+                cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+                print("Modalità fullscreen attivata")
+            else:
+                cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
+                cv2.resizeWindow(window_name, 1200, 800)
+                print("Modalità finestra attivata")
+        elif key == ord('s'):
+            # Screenshot
+            from datetime import datetime
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"robot_tracking_{timestamp}.jpg"
+            cv2.imwrite(filename, frame)
+            print(f"Screenshot salvato: {filename}")
 
     cap.release()
     cv2.destroyAllWindows()
