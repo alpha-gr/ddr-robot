@@ -57,6 +57,7 @@
       let now = Date.now();
       if (now - lastSent > 100) {
         payload = JSON.stringify({x: x, y: y});
+        console.log(payload);
         ws.send(payload);
         // console.log(payload);
         lastSent = now;

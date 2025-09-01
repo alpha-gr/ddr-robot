@@ -92,7 +92,7 @@ class RobotCommunication:
         
         Args:
             x: Controllo laterale [-1, 1] (negativo = sinistra)
-            y: Controllo avanti/indietro [-1, 1] (negativo = avanti)
+            y: Controllo avanti/indietro [-1, 1] (negativo = indietro)
             
         Returns:
             bool: True se comando inviato con successo

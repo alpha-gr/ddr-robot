@@ -63,7 +63,7 @@ def transform_coordinates(robot_center, arena_corners):
 
 def main():
     # Apri la webcam
-    cap = cv2.VideoCapture(0)  # usa 1 se hai più webcam
+    cap = cv2.VideoCapture(1)  # usa 1 se hai più webcam
 
     if not cap.isOpened():
         print("Errore: impossibile aprire la webcam")
