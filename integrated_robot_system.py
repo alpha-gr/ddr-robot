@@ -15,6 +15,7 @@ from datetime import datetime
 # Import dei moduli del nostro sistema
 from robot_controller import RobotController, RobotState, TargetState
 from config import VisionConfig, SystemConfig, UIConfig, ControlConfig
+from pathfinding import PathfindingSystem, PathPoint
 
 # Setup logging
 logging.basicConfig(level=getattr(logging, SystemConfig.LOG_LEVEL))
@@ -71,7 +72,8 @@ class VisionSystem:
             "robot_y": 0.0, 
             "robot_theta": 0.0,
             "arena_markers": {},
-            "arena_valid": False
+            "arena_valid": False,
+            "obstacles": {}
         }
         
         if ids is None:
@@ -80,6 +82,7 @@ class VisionSystem:
         # Processo marker rilevati
         arena_markers = {}
         robot_data = None
+        obstacles = {}
         
         for i, marker_id in enumerate(ids.flatten()):
             # Calcola centro marker
@@ -98,12 +101,19 @@ class VisionSystem:
             elif marker_id in VisionConfig.ARENA_MARKER_IDS:
                 # Marker arena
                 arena_markers[marker_id] = center
+                
+            elif marker_id > 4:
+                # Marker ostacoli (ID > 4)
+                obstacles[marker_id] = center
         
         # Processa marker arena
         if len(arena_markers) >= 2:
             result["arena_markers"] = arena_markers
             result["arena_valid"] = True
             self.arena_markers = arena_markers
+        
+        # Processa ostacoli
+        result["obstacles"] = obstacles
         
         # Processa robot se trovato e arena valida
         if robot_data and result["arena_valid"]:
@@ -141,6 +151,17 @@ class VisionSystem:
         arena_y = norm_y * 100
         
         return arena_x, arena_y
+    
+    def get_obstacle_arena_coordinates(self, obstacles_dict, arena_markers) -> Dict:
+        """Trasforma le coordinate degli ostacoli in coordinate arena [0-100]"""
+        obstacle_arena_coords = {}
+        
+        for obs_id, obs_center in obstacles_dict.items():
+            arena_coords = self._transform_to_arena_coordinates(obs_center, arena_markers)
+            if arena_coords:
+                obstacle_arena_coords[obs_id] = arena_coords
+                
+        return obstacle_arena_coords
     
     def _transform_arena_to_screen(self, arena_point, arena_markers, frame_width, frame_height):
         """Trasforma coordinate arena [0-100] in coordinate schermo"""
@@ -192,11 +213,15 @@ class IntegratedRobotSystem:
         # Sottosistemi
         self.vision = VisionSystem()
         self.controller = RobotController()
+        self.pathfinding = PathfindingSystem()  # NUOVO: Sistema di pathfinding
         
         # Stati
         self.running = False
         self.manual_control = False
         self.target_set = False
+        
+        # Modalità di navigazione
+        self.pathfinding_mode = False  # NUOVO: Toggle pathfinding vs controllo diretto
         
         # Performance monitoring
         self.frame_count = 0
@@ -210,6 +235,9 @@ class IntegratedRobotSystem:
         # Follow mouse mode
         self.follow_mouse_mode = False
         self.current_mouse_pos = None  # Posizione corrente del mouse
+        
+        # Obstacle tracking
+        self._last_obstacle_count = 0
         
         self.logger = logging.getLogger(__name__)
     
@@ -265,6 +293,24 @@ class IntegratedRobotSystem:
             cv2.circle(overlay_frame, center, 8, color, -1)
             cv2.putText(overlay_frame, str(marker_id), 
                        (center[0] + 12, center[1] + 5), 
+                       cv2.FONT_HERSHEY_SIMPLEX, UIConfig.FONT_SCALE, color, UIConfig.FONT_THICKNESS)
+        
+        # Disegna ostacoli (marker ID > 4)
+        for marker_id, center in vision_data["obstacles"].items():
+            color = UIConfig.COLOR_OBSTACLES
+            # Disegna ostacolo come quadrato rosso più grande
+            cv2.rectangle(overlay_frame, 
+                         (center[0] - 12, center[1] - 12), 
+                         (center[0] + 12, center[1] + 12), 
+                         color, -1)
+            # Bordo nero per visibilità
+            cv2.rectangle(overlay_frame, 
+                         (center[0] - 12, center[1] - 12), 
+                         (center[0] + 12, center[1] + 12), 
+                         (0, 0, 0), 2)
+            # ID dell'ostacolo
+            cv2.putText(overlay_frame, f"OBS{marker_id}", 
+                       (center[0] + 15, center[1] + 5), 
                        cv2.FONT_HERSHEY_SIMPLEX, UIConfig.FONT_SCALE, color, UIConfig.FONT_THICKNESS)
         
         # Disegna robot se trovato
@@ -349,6 +395,10 @@ class IntegratedRobotSystem:
                                (target_screen_x + 20, target_screen_y - 10),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, UIConfig.COLOR_TARGET, 2)
         
+        # NUOVO: Disegna percorso pathfinding
+        if self.pathfinding_mode and vision_data["arena_valid"]:
+            self._draw_pathfinding_overlay(overlay_frame, vision_data, frame_width, frame_height)
+        
         # Disegna perimetro arena
         if len(vision_data["arena_markers"]) >= 3:
             points = list(vision_data["arena_markers"].values())
@@ -374,9 +424,11 @@ class IntegratedRobotSystem:
         info_lines = [
             f"FPS: {self.current_fps:.1f}",
             f"Arena: {len(vision_data['arena_markers'])}/4",
+            f"Obstacles: {len(vision_data['obstacles'])}",
             f"Robot: {'OK' if vision_data['robot_found'] else 'LOST'}",
             f"Control: {'ON' if self.controller.control_enabled else 'OFF'}",
             f"Mode: {'🐭 FOLLOW' if self.follow_mouse_mode else '🎯 TARGET'}",
+            f"Navigation: {'🗺️ PATHFINDING' if self.pathfinding_mode else '➡️ DIRECT'}",
             "--- CALIBRAZIONE ---",
             "WASD per muoversi",
             "SPACE per fermarsi"
@@ -432,6 +484,46 @@ class IntegratedRobotSystem:
             else:
                 info_lines.append("Target: Non impostato")
         
+        # Informazioni ostacoli
+        if vision_data["obstacles"]:
+            info_lines.append("--- OSTACOLI ---")
+            for obs_id in sorted(vision_data["obstacles"].keys()):
+                # Calcola coordinate arena dell'ostacolo se possibile
+                if vision_data["arena_valid"]:
+                    obs_center = vision_data["obstacles"][obs_id]
+                    obs_arena_coords = self.vision._transform_to_arena_coordinates(
+                        obs_center, vision_data["arena_markers"]
+                    )
+                    if obs_arena_coords:
+                        info_lines.append(f"OBS{obs_id}: ({obs_arena_coords[0]:.1f}, {obs_arena_coords[1]:.1f})")
+                    else:
+                        info_lines.append(f"OBS{obs_id}: rilevato")
+                else:
+                    info_lines.append(f"OBS{obs_id}: rilevato")
+        
+        # NUOVO: Informazioni pathfinding
+        if self.pathfinding_mode:
+            path_info = self.pathfinding.get_path_info()
+            info_lines.append("--- PATHFINDING ---")
+            if path_info["has_path"]:
+                info_lines.extend([
+                    f"Waypoints: {path_info['current_waypoint']}/{path_info['total_waypoints']}",
+                    f"Rimangono: {path_info['waypoints_remaining']}",
+                    f"Status: {'COMPLETE' if path_info['is_complete'] else 'NAVIGATING'}"
+                ])
+                
+                # Info waypoint corrente
+                current_wp = self.pathfinding.get_current_waypoint()
+                if current_wp and vision_data["robot_found"]:
+                    wp_distance = math.sqrt(
+                        (current_wp.x - vision_data["robot_x"])**2 + 
+                        (current_wp.y - vision_data["robot_y"])**2
+                    )
+                    info_lines.append(f"Next WP: ({current_wp.x:.1f}, {current_wp.y:.1f})")
+                    info_lines.append(f"WP Dist: {wp_distance:.1f}")
+            else:
+                info_lines.append("Path: Calcolo...")
+        
         # Sfondo pannello
         panel_width = 250
         panel_height = len(info_lines) * 20 + 10
@@ -450,6 +542,56 @@ class IntegratedRobotSystem:
             cv2.putText(frame, line, (start_x + 5, y_offset), 
                        cv2.FONT_HERSHEY_SIMPLEX, UIConfig.FONT_SCALE, (255, 255, 255), UIConfig.FONT_THICKNESS)
             y_offset += 18
+    
+    def _draw_pathfinding_overlay(self, frame, vision_data, frame_width, frame_height):
+        """Disegna overlay del pathfinding (percorso e waypoint)"""
+        if not self.pathfinding_mode:
+            return
+            
+        path_info = self.pathfinding.get_path_info()
+        if not path_info["has_path"]:
+            return
+        
+        full_path = self.pathfinding.get_full_path()
+        if len(full_path) < 2:
+            return
+            
+        # Disegna linee del percorso
+        prev_screen_pos = None
+        for i, path_point in enumerate(full_path):
+            screen_pos = self.vision._transform_arena_to_screen(
+                (path_point.x, path_point.y), vision_data["arena_markers"], frame_width, frame_height
+            )
+            
+            if screen_pos and prev_screen_pos:
+                # Linea del percorso
+                cv2.line(frame, prev_screen_pos, screen_pos, UIConfig.COLOR_PATH, 3)
+            
+            prev_screen_pos = screen_pos
+        
+        # Disegna waypoint
+        current_waypoint_index = path_info["current_waypoint"]
+        
+        for i, path_point in enumerate(full_path):
+            screen_pos = self.vision._transform_arena_to_screen(
+                (path_point.x, path_point.y), vision_data["arena_markers"], frame_width, frame_height
+            )
+            
+            if screen_pos:
+                if i == current_waypoint_index:
+                    # Waypoint corrente - più grande e giallo
+                    cv2.circle(frame, screen_pos, 8, UIConfig.COLOR_CURRENT_WAYPOINT, -1)
+                    cv2.circle(frame, screen_pos, 10, (0, 0, 0), 2)  # Bordo nero
+                    cv2.putText(frame, f"WP{i}", 
+                               (screen_pos[0] + 12, screen_pos[1] - 5),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, UIConfig.COLOR_CURRENT_WAYPOINT, 1)
+                elif i < current_waypoint_index:
+                    # Waypoint già visitati - grigi
+                    cv2.circle(frame, screen_pos, 4, (128, 128, 128), -1)
+                else:
+                    # Waypoint futuri - arancioni
+                    cv2.circle(frame, screen_pos, 6, UIConfig.COLOR_WAYPOINT, -1)
+                    cv2.circle(frame, screen_pos, 7, (0, 0, 0), 1)  # Bordo nero sottile
     
     async def main_loop(self):
         """Loop principale del sistema"""
@@ -476,6 +618,17 @@ class IntegratedRobotSystem:
                 # Processa visione
                 vision_data = self.vision.process_frame(frame)
                 
+                # Log ostacoli quando vengono rilevati per la prima volta
+                if vision_data["obstacles"] and hasattr(self, '_last_obstacle_count'):
+                    if len(vision_data["obstacles"]) != self._last_obstacle_count:
+                        obstacle_ids = list(vision_data["obstacles"].keys())
+                        self.logger.info(f"🚧 Ostacoli rilevati: {obstacle_ids}")
+                elif vision_data["obstacles"]:
+                    obstacle_ids = list(vision_data["obstacles"].keys())
+                    self.logger.info(f"🚧 Ostacoli rilevati: {obstacle_ids}")
+                    
+                self._last_obstacle_count = len(vision_data["obstacles"])
+                
                 # Aggiorna controller con dati visione
                 if vision_data["robot_found"]:
                     self.controller.update_robot_state(
@@ -487,38 +640,43 @@ class IntegratedRobotSystem:
                 else:
                     self.controller.update_robot_state(0, 0, 0, tracking_valid=False)
                 
-                # Gestisci target - differenzia tra follow mode e target fisso
+                # NUOVO: Gestione target con pathfinding
                 current_target = None
                 
-                if self.follow_mouse_mode:
-                    # FOLLOW MOUSE: usa posizione corrente del mouse come target continuo
-                    if self.current_mouse_pos:
-                        current_target = self.current_mouse_pos
-                        # Invia target solo se cambiato significativamente
-                        if (not self.last_target_sent or 
-                            abs(current_target[0] - self.last_target_sent[0]) > 2.0 or 
-                            abs(current_target[1] - self.last_target_sent[1]) > 2.0):
-                            
+                if self.pathfinding_mode:
+                    # === MODALITÀ PATHFINDING ===
+                    await self._handle_pathfinding_mode(vision_data)
+                else:
+                    # === MODALITÀ CONTROLLO DIRETTO ===
+                    if self.follow_mouse_mode:
+                        # FOLLOW MOUSE: usa posizione corrente del mouse come target continuo
+                        if self.current_mouse_pos:
+                            current_target = self.current_mouse_pos
+                            # Invia target solo se cambiato significativamente
+                            if (not self.last_target_sent or 
+                                abs(current_target[0] - self.last_target_sent[0]) > 2.0 or 
+                                abs(current_target[1] - self.last_target_sent[1]) > 2.0):
+                                
+                                self.controller.set_target_position(current_target[0], current_target[1])
+                                self.last_target_sent = current_target
+                    else:
+                        # TARGET FISSO: usa target da click mouse
+                        if self.mouse_target and self.mouse_target != self.last_target_sent:
+                            current_target = self.mouse_target
+                            self.logger.info(f"🎯 Nuovo target fisso: {current_target}")
                             self.controller.set_target_position(current_target[0], current_target[1])
                             self.last_target_sent = current_target
-                else:
-                    # TARGET FISSO: usa target da click mouse
-                    if self.mouse_target and self.mouse_target != self.last_target_sent:
-                        current_target = self.mouse_target
-                        self.logger.info(f"🎯 Nuovo target fisso: {current_target}")
-                        self.controller.set_target_position(current_target[0], current_target[1])
-                        self.last_target_sent = current_target
-                
-                # Auto-stop solo per target fissi (non in follow mode)
-                if (not self.follow_mouse_mode and 
-                    self.mouse_target and  # Usa self.mouse_target invece di current_target
-                    vision_data["robot_found"] and
-                    self.controller.is_at_target()):
                     
-                    self.logger.info(f"🎉 Target raggiunto! Auto-stop e reset target")
-                    await self.controller.stop()
-                    self.mouse_target = None
-                    self.last_target_sent = None
+                    # Auto-stop solo per target fissi (non in follow mode)
+                    if (not self.follow_mouse_mode and 
+                        self.mouse_target and  # Usa self.mouse_target invece di current_target
+                        vision_data["robot_found"] and
+                        self.controller.is_at_target()):
+                        
+                        self.logger.info(f"🎉 Target raggiunto! Auto-stop e reset target")
+                        await self.controller.stop()
+                        self.mouse_target = None
+                        self.last_target_sent = None
                 
                 # Disegna overlay
                 display_frame = self.draw_overlay(frame, vision_data)
@@ -562,8 +720,18 @@ class IntegratedRobotSystem:
                     # Reset target
                     self.mouse_target = None
                     self.last_target_sent = None  # Reset anche il tracking
+                    self.pathfinding.clear_path()  # NUOVO: Pulisci anche pathfinding
                     await self.controller.stop()
-                    self.logger.info("🔄 Target resettato")
+                    self.logger.info("🔄 Target e percorso resettati")
+                elif key == ord('p'):
+                    # NUOVO: Toggle Pathfinding Mode
+                    self.pathfinding_mode = not self.pathfinding_mode
+                    if self.pathfinding_mode:
+                        self.pathfinding.clear_path()  # Reset pathfinding
+                        self.logger.info("🗺️ PATHFINDING attivato - Il robot userà A* per evitare ostacoli")
+                    else:
+                        await self.controller.stop()
+                        self.logger.info("➡️ PATHFINDING disattivato - Torna a controllo diretto")
                 elif key == ord('f'):
                     # Toggle Follow Mouse Mode
                     self.follow_mouse_mode = not self.follow_mouse_mode
@@ -613,6 +781,82 @@ class IntegratedRobotSystem:
             cv2.destroyAllWindows()
             self.logger.info("Sistema arrestato")
     
+    async def _handle_pathfinding_mode(self, vision_data):
+        """Gestisce la modalità pathfinding"""
+        if not vision_data["robot_found"]:
+            return
+            
+        # Preparar coordinate ostacoli per pathfinding
+        obstacles_arena = {}
+        if vision_data["obstacles"] and vision_data["arena_valid"]:
+            for obs_id, obs_center in vision_data["obstacles"].items():
+                obs_arena_coords = self.vision._transform_to_arena_coordinates(
+                    obs_center, vision_data["arena_markers"]
+                )
+                if obs_arena_coords:
+                    obstacles_arena[obs_id] = obs_arena_coords
+        
+        # Determina target per pathfinding
+        target_pos = None
+        if self.follow_mouse_mode and self.current_mouse_pos:
+            target_pos = self.current_mouse_pos
+        elif not self.follow_mouse_mode and self.mouse_target:
+            target_pos = self.mouse_target
+            
+        if not target_pos:
+            # NESSUN TARGET: Se esiste un percorso valido, continua a seguirlo
+            # altrimenti ferma il robot
+            if not self.pathfinding.has_valid_path():
+                await self.controller.stop()
+                return
+        else:
+            # AGGIORNA PATHFINDING: Prova a calcolare nuovo percorso
+            # MA mantieni quello vecchio se il calcolo fallisce
+            path_updated = self.pathfinding.update_path(
+                vision_data["robot_x"], vision_data["robot_y"],
+                target_pos[0], target_pos[1],
+                obstacles_arena
+            )
+            
+            if path_updated:
+                self.logger.info(f"🗺️ Pathfinding: Nuovo percorso calcolato")
+            else:
+                self.logger.debug(f"🗺️ Pathfinding: Usando percorso esistente")
+        
+        # USA IL PERCORSO ESISTENTE (nuovo o vecchio)
+        current_waypoint = self.pathfinding.get_current_waypoint()
+        if current_waypoint:
+            # Imposta waypoint come target del controller SOLO se diverso
+            if (not self.last_target_sent or 
+                abs(current_waypoint.x - self.last_target_sent[0]) > 1.0 or 
+                abs(current_waypoint.y - self.last_target_sent[1]) > 1.0):
+                
+                self.controller.set_target_position(current_waypoint.x, current_waypoint.y)
+                self.last_target_sent = (current_waypoint.x, current_waypoint.y)
+                self.logger.debug(f"🎯 Nuovo waypoint: ({current_waypoint.x:.1f}, {current_waypoint.y:.1f})")
+            
+            # Verifica se waypoint corrente è stato raggiunto
+            if self.controller.is_at_target():
+                waypoint_advanced = self.pathfinding.advance_waypoint(
+                    vision_data["robot_x"], vision_data["robot_y"]
+                )
+                
+                if not waypoint_advanced:
+                    # Percorso completato!
+                    path_info = self.pathfinding.get_path_info()
+                    if path_info["is_complete"]:
+                        self.logger.info("🎉 Percorso pathfinding completato!")
+                        await self.controller.stop()
+                        
+                        # Reset target se non in follow mode
+                        if not self.follow_mouse_mode:
+                            self.mouse_target = None
+                            self.last_target_sent = None
+        else:
+            # NESSUN PERCORSO VALIDO: Ferma il robot
+            self.logger.warning("⚠️ Nessun percorso valido, robot fermo")
+            await self.controller.stop()
+    
     async def _control_loop(self):
         """Loop di controllo asincrono"""
         try:
@@ -637,8 +881,9 @@ async def main():
     print("   === NAVIGAZIONE AUTOMATICA ===")
     print("   - Click mouse: Imposta target fisso")
     print("   - 'f': Toggle FOLLOW MOUSE mode")
+    print("   - 'p': Toggle PATHFINDING mode (A* con evitamento ostacoli)")
     print("   - 'c': Toggle controllo automatico")
-    print("   - 'r': Reset target")
+    print("   - 'r': Reset target e percorso")
     print("   === CONTROLLO MANUALE (CALIBRAZIONE) ===")
     print("   - 'w': Avanti")
     print("   - 'x': Indietro")
@@ -648,6 +893,13 @@ async def main():
     print("   === SISTEMA ===")
     print("   - 's': Stop emergenza")
     print("   - 'q': Quit")
+    print("")
+    print("🗺️ PATHFINDING: Algoritmo A* con evitamento ostacoli intelligente")
+    print("   - Modalità PATHFINDING: Il robot calcola il percorso ottimale")
+    print("   - Modalità DIRECT: Il robot va diretto al target (vecchio comportamento)")
+    print("🚧 OSTACOLI: I marker con ID > 4 sono considerati ostacoli")
+    print("   - Visualizzati come quadrati rossi sullo schermo")
+    print("   - Coordinate mostrate nel pannello informazioni")
     
     await system.main_loop()
 

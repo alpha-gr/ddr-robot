@@ -98,6 +98,7 @@ class UIConfig:
     # Colors (BGR format)
     COLOR_ROBOT = (0, 255, 255)        # Giallo
     COLOR_TARGET = (255, 0, 255)       # Magenta
+    COLOR_OBSTACLES = (0, 0, 255)      # Rosso per ostacoli
     COLOR_ARENA_MARKERS = {
         1: (255, 0, 0),                 # Blu
         2: (0, 255, 0),                 # Verde
@@ -105,6 +106,9 @@ class UIConfig:
         4: (255, 255, 0)                # Ciano
     }
     COLOR_TRAJECTORY = (128, 255, 128) # Verde chiaro
+    COLOR_PATH = (255, 128, 0)         # Arancione per percorso pathfinding
+    COLOR_WAYPOINT = (0, 165, 255)     # Arancione scuro per waypoint
+    COLOR_CURRENT_WAYPOINT = (0, 255, 255) # Giallo per waypoint corrente
     COLOR_BOUNDARY = (255, 255, 255)   # Bianco
     COLOR_VECTOR = (255, 0, 255)       # Viola (Magenta)
     
