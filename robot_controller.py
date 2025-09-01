@@ -88,18 +88,18 @@ class RobotController:
         self.communication = RobotCommunication()
         
         # Controllori PID
-        self.pid_linear = PIDController(
-            ControlConfig.PID_LINEAR_KP,
-            ControlConfig.PID_LINEAR_KI, 
-            ControlConfig.PID_LINEAR_KD,
-            ControlConfig.MAX_LINEAR_SPEED
+        self.pid_forward = PIDController(
+            ControlConfig.PID_FORWARD_KP,
+            ControlConfig.PID_FORWARD_KI, 
+            ControlConfig.PID_FORWARD_KD,
+            ControlConfig.MAX_SPEED
         )
         
-        self.pid_angular = PIDController(
-            ControlConfig.PID_ANGULAR_KP,
-            ControlConfig.PID_ANGULAR_KI,
-            ControlConfig.PID_ANGULAR_KD, 
-            ControlConfig.MAX_ANGULAR_SPEED
+        self.pid_lateral = PIDController(
+            ControlConfig.PID_LATERAL_KP,
+            ControlConfig.PID_LATERAL_KI,
+            ControlConfig.PID_LATERAL_KD, 
+            ControlConfig.MAX_SPEED
         )
         
         # Stato controllo
@@ -168,14 +168,17 @@ class RobotController:
         self.logger.info(f"Nuovo target: ({self.target_state.x:.1f}, {self.target_state.y:.1f}, {self.target_state.theta:.1f}°)")
         
         # Reset PID per nuovo target
-        self.pid_linear.reset()
-        self.pid_angular.reset()
+        self.pid_forward.reset()
+        self.pid_lateral.reset()
         
         # Reset anche filtro smoothing angolare
         self.last_angular_speed = 0.0
     
     def calculate_control_output(self) -> Tuple[float, float]:
-        """Calcola output di controllo usando approccio VETTORIALE"""
+        """
+        Calcola output di controllo
+        Output: x,y come coordinate JOYSTICK per robot
+        """
         if self.robot_state.tracking_lost:
             return 0.0, 0.0
             
@@ -190,7 +193,7 @@ class RobotController:
         
         # VETTORE VELOCITÀ: intensità e direzione
         # Intensità: proporzionale alla distanza (con saturazione)
-        max_intensity = ControlConfig.MAX_LINEAR_SPEED
+        max_intensity = ControlConfig.MAX_SPEED
         intensity = min(distance / ControlConfig.VECTOR_DISTANCE_SCALE, max_intensity)
         
         # Direzione: angolo verso target
@@ -209,28 +212,24 @@ class RobotController:
         velocity_robot_y = (-velocity_world_x * math.sin(robot_angle_rad) + 
                            velocity_world_y * math.cos(robot_angle_rad))
         
-        # Converti velocità robot in comandi motori
-        # velocity_robot_x = rotazione, velocity_robot_y = traslazione
-        linear_speed = velocity_robot_y   # Avanti/indietro
-        angular_speed = velocity_robot_x  # Rotazione
-        
         # Applica limiti
-        linear_speed = max(-max_intensity, min(max_intensity, linear_speed))
-        angular_speed = max(-ControlConfig.MAX_ANGULAR_SPEED, 
-                          min(ControlConfig.MAX_ANGULAR_SPEED, angular_speed))
+        joystick_x = max(-max_intensity, min(max_intensity, velocity_robot_x))
+        joystick_y = max(-ControlConfig.MAX_SPEED, 
+                          min(ControlConfig.MAX_SPEED, velocity_robot_y))
         
         # Applica filtro smoothing angolare
-        if hasattr(self, 'last_angular_speed'):
-            angular_speed = (self.angular_smooth_factor * self.last_angular_speed + 
-                           (1.0 - self.angular_smooth_factor) * angular_speed)
-            self.last_angular_speed = angular_speed
+        # if hasattr(self, 'last_angular_speed'):
+        #     angular_speed = (self.angular_smooth_factor * self.last_angular_speed + 
+        #                    (1.0 - self.angular_smooth_factor) * angular_speed)
+        #     self.last_angular_speed = angular_speed
         
         # SALVA INFORMAZIONI VETTORE per visualizzazione
         self.last_vector_intensity = intensity
         self.last_vector_angle = math.atan2(velocity_robot_y, velocity_robot_x)  # Angolo nel sistema robot
         self.last_target_distance = distance
-        
-        return linear_speed, angular_speed
+
+        #print(f"Joystick Output: x={joystick_x:.2f}, y={joystick_y:.2f}")
+        return joystick_y, joystick_x  # Nota: invertito per joystick (y avanti, x laterale)
     
     async def control_loop_step(self):
         """Singolo step del loop di controllo"""
@@ -238,8 +237,8 @@ class RobotController:
             return
             
         # Calcola controllo
-        linear_speed, angular_speed = self.calculate_control_output()
-        
+        joystick_x, joystick_y = self.calculate_control_output()
+
         # Salva errori per debug
         error_x = self.target_state.x - self.robot_state.x
         error_y = self.target_state.y - self.robot_state.y
@@ -248,35 +247,21 @@ class RobotController:
         angle_error = target_angle - self.robot_state.theta
         while angle_error > 180: angle_error -= 360
         while angle_error < -180: angle_error += 360
-        
-        # Converti in comandi joystick (cinematica inversa)
-        # Per differential drive: 
-        # - linear_speed positiva = avanti
-        # - angular_speed positiva = gira a destra
-        
-        # Calcola velocità motori per differential drive
-        # Formula corretta: 
-        # left_motor = linear_speed - angular_speed * wheel_base/2
-        # right_motor = linear_speed + angular_speed * wheel_base/2
-        # left_motor = linear_speed - angular_speed   
-        # right_motor = linear_speed + angular_speed
-        left_motor = linear_speed 
-        right_motor = angular_speed
 
         # Saturazione
-        max_motor = max(abs(left_motor), abs(right_motor))
+        max_motor = max(abs(joystick_x), abs(joystick_y))
         if max_motor > 1.0:
             scale = 1.0 / max_motor
-            left_motor *= scale
-            right_motor *= scale
-        
+            joystick_x *= scale
+            joystick_y *= scale
+
         # Applica limiti di velocità
-        left_motor = max(-ControlConfig.MAX_LINEAR_SPEED, min(ControlConfig.MAX_LINEAR_SPEED, left_motor))
-        right_motor = max(-ControlConfig.MAX_LINEAR_SPEED, min(ControlConfig.MAX_LINEAR_SPEED, right_motor))
-        
+        joystick_x = max(-ControlConfig.MAX_SPEED, min(ControlConfig.MAX_SPEED, joystick_x))
+        joystick_y = max(-ControlConfig.MAX_SPEED, min(ControlConfig.MAX_SPEED, joystick_y))
+
         # Invia comando
-        success = await self.communication.send_movement_command(left_motor, right_motor)
-        
+        success = await self.communication.send_movement_command(joystick_x, joystick_y)
+
         # Salva errori e variabili per debug
         error_x = self.target_state.x - self.robot_state.x
         error_y = self.target_state.y - self.robot_state.y
@@ -287,8 +272,7 @@ class RobotController:
             self._debug_counter = getattr(self, '_debug_counter', 0) + 1
             if self._debug_counter % 10 == 0:
                 self.logger.info(f"🎮 Vector Control: dist={distance:.2f}, "
-                               f"linear={linear_speed:.3f}, angular={angular_speed:.3f}, "
-                               f"motors=L{left_motor:.3f}/R{right_motor:.3f}")
+                                 f"joystick_x={joystick_x:.2f}, joystick_y={joystick_y:.2f}")
 
         if not success:
             self.logger.warning("Fallito invio comando movimento")

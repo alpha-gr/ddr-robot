@@ -43,17 +43,19 @@ class VisionConfig:
 class ControlConfig:
     """Configurazione algoritmi di controllo"""
     # PID Parameters (calibrati per stabilità)
-    PID_LINEAR_KP = 0.15      # Ridotto da 0.5 - meno aggressivo
-    PID_LINEAR_KI = 0.01      # Ridotto da 0.1 - meno oscillazioni
-    PID_LINEAR_KD = 0.02      # Ridotto da 0.05 - meno rumore
-    
-    PID_ANGULAR_KP = 0.15     # RIDOTTO da 0.3 - correzioni più dolci
-    PID_ANGULAR_KI = 0.02     # RIDOTTO da 0.05 - meno accumulo errore
-    PID_ANGULAR_KD = 0.01     # RIDOTTO da 0.03 - meno deriva
-    
+    PID_FORWARD_KP = 0.15      # Ridotto da 0.5 - meno aggressivo
+    PID_FORWARD_KI = 0.01      # Ridotto da 0.1 - meno oscillazioni
+    PID_FORWARD_KD = 0.02      # Ridotto da 0.05 - meno rumore
+
+    PID_LATERAL_KP = 0.15     # RIDOTTO da 0.3 - correzioni più dolci
+    PID_LATERAL_KI = 0.02     # RIDOTTO da 0.05 - meno accumulo errore
+    PID_LATERAL_KD = 0.01     # RIDOTTO da 0.03 - meno deriva
+
     # Limiti controllo
-    MAX_LINEAR_SPEED = 0.4   
-    MAX_ANGULAR_SPEED = 0.4  
+    MAX_SPEED = 0.4 
+    
+    # Controllo vettoriale
+    VECTOR_DISTANCE_SCALE = 30.0  # Distanza arena per velocità massima (era 20.0 - più delicato)
     
     # Tolleranze
     POSITION_TOLERANCE = 3.0  # Aumentato da 2.0 - meno preciso ma più stabile
@@ -67,8 +69,6 @@ class ControlConfig:
     MANUAL_LINEAR_SPEED = 0.3   # Velocità lineare per controlli manuali
     MANUAL_ANGULAR_SPEED = 0.4  # Velocità angolare per controlli manuali
     
-    # Controllo vettoriale
-    VECTOR_DISTANCE_SCALE = 30.0  # Distanza arena per velocità massima (era 20.0 - più delicato)
 
 class CommunicationConfig:
     """Configurazione comunicazione"""
