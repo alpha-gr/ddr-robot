@@ -111,6 +111,11 @@ class RobotController:
         self.last_angular_speed = 0.0
         self.angular_smooth_factor = 0.7  # Fattore di smoothing [0-1]
         
+        # Variabili per debug e visualizzazione vettore
+        self.last_vector_intensity = 0.0
+        self.last_vector_angle = 0.0  # In radianti, sistema robot
+        self.last_target_distance = 0.0
+        
         # Logger
         self.logger = logging.getLogger(__name__)
         
@@ -170,70 +175,60 @@ class RobotController:
         self.last_angular_speed = 0.0
     
     def calculate_control_output(self) -> Tuple[float, float]:
-        """Calcola output di controllo (linear_speed, angular_speed)"""
+        """Calcola output di controllo usando approccio VETTORIALE"""
         if self.robot_state.tracking_lost:
             return 0.0, 0.0
             
-        # Calcola errori di posizione
+        # Calcola vettore verso target
         error_x = self.target_state.x - self.robot_state.x
         error_y = self.target_state.y - self.robot_state.y
-        distance_error = math.sqrt(error_x**2 + error_y**2)
+        distance = math.sqrt(error_x**2 + error_y**2)
         
-        # Calcola angolo verso target
-        target_angle = math.degrees(math.atan2(error_y, error_x))
+        # Se già al target, ferma
+        if distance < self.target_state.tolerance:
+            return 0.0, 0.0
         
-        # Calcola errore angolare (con wraparound)
-        angle_error = target_angle - self.robot_state.theta
-        # Normalizza errore angolare tra -180 e +180
-        while angle_error > 180:
-            angle_error -= 360
-        while angle_error < -180:
-            angle_error += 360
+        # VETTORE VELOCITÀ: intensità e direzione
+        # Intensità: proporzionale alla distanza (con saturazione)
+        max_intensity = ControlConfig.MAX_LINEAR_SPEED
+        intensity = min(distance / ControlConfig.VECTOR_DISTANCE_SCALE, max_intensity)
         
-        # Controllo PID
-        dt = time.time() - self.last_control_time if self.last_control_time > 0 else 0.033
-        self.last_control_time = time.time()
+        # Direzione: angolo verso target
+        target_angle_rad = math.atan2(error_y, error_x)
         
-        # Velocità lineare basata su distanza
-        linear_speed = self.pid_linear.update(distance_error, dt)
+        # Componenti vettore velocità nel sistema mondo
+        velocity_world_x = intensity * math.cos(target_angle_rad)
+        velocity_world_y = intensity * math.sin(target_angle_rad)
         
-        # Velocità angolare basata su errore di orientamento
-        angular_speed = self.pid_angular.update(angle_error, dt)
+        # Trasforma dal sistema mondo al sistema robot
+        robot_angle_rad = math.radians(self.robot_state.theta)
         
-        # ANTI-OSCILLAZIONE: Dead zone per piccoli errori angolari
-        if abs(angle_error) < 5:  # Dead zone di ±5°
-            angular_speed = 0.0  # Non correggere, vai dritto
-            
-        # LOGICA MIGLIORATA: Prima orienta, poi muovi
-        elif abs(angle_error) > 45:  # Se errore > 45°
-            linear_speed = 0.0  # Stop movimento, solo rotazione
-            self.logger.debug(f"Orientamento: errore {angle_error:.1f}°, solo rotazione")
-            
-        # Se errore angolare medio, riduci velocità lineare ma continua
-        elif abs(angle_error) > 20:  # Se errore > 20°
-            linear_speed *= 0.4  # Riduci velocità lineare
-            angular_speed *= 0.7  # Riduci anche correzione angolare
-            
-        # Se errore piccolo, vai quasi dritto con correzioni minime
-        elif abs(angle_error) > 10:  # Se errore > 10°
-            angular_speed *= 0.3  # Correzioni molto dolci
-            
-        # Se siamo vicini al target, riduci velocità
-        if distance_error < self.target_state.tolerance * 2:
-            linear_speed *= 0.3
-            angular_speed *= 0.5
-            
-        # Applica soglia minima
-        if abs(linear_speed) < ControlConfig.MIN_SPEED_THRESHOLD:
-            linear_speed = 0.0
-        if abs(angular_speed) < ControlConfig.MIN_SPEED_THRESHOLD:
-            angular_speed = 0.0
-            
-        # SMOOTH ANGOLARE: Filtra cambi improvvisi di velocità angolare
+        # Rotazione inversa: da coordinate mondo a coordinate robot
+        velocity_robot_x = (velocity_world_x * math.cos(robot_angle_rad) + 
+                           velocity_world_y * math.sin(robot_angle_rad))
+        velocity_robot_y = (-velocity_world_x * math.sin(robot_angle_rad) + 
+                           velocity_world_y * math.cos(robot_angle_rad))
+        
+        # Converti velocità robot in comandi motori
+        # velocity_robot_x = rotazione, velocity_robot_y = traslazione
+        linear_speed = velocity_robot_y   # Avanti/indietro
+        angular_speed = velocity_robot_x  # Rotazione
+        
+        # Applica limiti
+        linear_speed = max(-max_intensity, min(max_intensity, linear_speed))
+        angular_speed = max(-ControlConfig.MAX_ANGULAR_SPEED, 
+                          min(ControlConfig.MAX_ANGULAR_SPEED, angular_speed))
+        
+        # Applica filtro smoothing angolare
         if hasattr(self, 'last_angular_speed'):
             angular_speed = (self.angular_smooth_factor * self.last_angular_speed + 
                            (1.0 - self.angular_smooth_factor) * angular_speed)
             self.last_angular_speed = angular_speed
+        
+        # SALVA INFORMAZIONI VETTORE per visualizzazione
+        self.last_vector_intensity = intensity
+        self.last_vector_angle = math.atan2(velocity_robot_y, velocity_robot_x)  # Angolo nel sistema robot
+        self.last_target_distance = distance
         
         return linear_speed, angular_speed
     
@@ -263,9 +258,11 @@ class RobotController:
         # Formula corretta: 
         # left_motor = linear_speed - angular_speed * wheel_base/2
         # right_motor = linear_speed + angular_speed * wheel_base/2
-        left_motor = linear_speed - angular_speed   
-        right_motor = linear_speed + angular_speed
-        
+        # left_motor = linear_speed - angular_speed   
+        # right_motor = linear_speed + angular_speed
+        left_motor = linear_speed 
+        right_motor = angular_speed
+
         # Saturazione
         max_motor = max(abs(left_motor), abs(right_motor))
         if max_motor > 1.0:
@@ -277,22 +274,22 @@ class RobotController:
         left_motor = max(-ControlConfig.MAX_LINEAR_SPEED, min(ControlConfig.MAX_LINEAR_SPEED, left_motor))
         right_motor = max(-ControlConfig.MAX_LINEAR_SPEED, min(ControlConfig.MAX_LINEAR_SPEED, right_motor))
         
-        # Converti a coordinate joystick per il robot server
-        # CORREZIONE: Il robot server si aspetta: y positivo = avanti, x positivo = destra
-        joystick_x = (right_motor - left_motor) / 2.0  # Rotazione: positivo = destra
-        joystick_y = (left_motor + right_motor) / 2.0  # Traslazione: positivo = avanti
-        
         # Invia comando
-        success = await self.communication.send_movement_command(joystick_x, joystick_y)
+        success = await self.communication.send_movement_command(left_motor, right_motor)
+        
+        # Salva errori e variabili per debug
+        error_x = self.target_state.x - self.robot_state.x
+        error_y = self.target_state.y - self.robot_state.y
+        distance = math.sqrt(error_x**2 + error_y**2)
         
         # Debug dettagliato ogni 10 comandi
         if self.control_enabled and hasattr(self, '_debug_counter'):
             self._debug_counter = getattr(self, '_debug_counter', 0) + 1
             if self._debug_counter % 10 == 0:
-                self.logger.info(f"🎮 Control: dist={distance_error:.2f}, angle={angle_error:.1f}°, "
+                self.logger.info(f"🎮 Vector Control: dist={distance:.2f}, "
                                f"linear={linear_speed:.3f}, angular={angular_speed:.3f}, "
-                               f"joy=({joystick_x:.3f},{joystick_y:.3f})")
-        
+                               f"motors=L{left_motor:.3f}/R{right_motor:.3f}")
+
         if not success:
             self.logger.warning("Fallito invio comando movimento")
     
@@ -380,6 +377,15 @@ class RobotController:
             self.logger.warning("Fallito invio comando manuale")
             
         return success
+    
+    def get_vector_info(self) -> Dict:
+        """Ritorna informazioni del vettore di controllo per visualizzazione"""
+        return {
+            "intensity": getattr(self, 'last_vector_intensity', 0.0),
+            "angle_rad": getattr(self, 'last_vector_angle', 0.0),
+            "distance": getattr(self, 'last_target_distance', 0.0),
+            "control_enabled": self.control_enabled
+        }
     
     def get_status(self) -> Dict:
         """Ritorna stato completo del sistema"""

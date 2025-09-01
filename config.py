@@ -52,9 +52,8 @@ class ControlConfig:
     PID_ANGULAR_KD = 0.01     # RIDOTTO da 0.03 - meno deriva
     
     # Limiti controllo
-    MAX_LINEAR_SPEED = 0.4    # Ridotto da 0.8 - più sicuro
-    MAX_ANGULAR_SPEED = 0.6   # Ridotto da 1.0 - rotazione più controllata
-    MIN_SPEED_THRESHOLD = 0.05 # Ridotto da 0.1 - più sensibile
+    MAX_LINEAR_SPEED = 0.4   
+    MAX_ANGULAR_SPEED = 0.4  
     
     # Tolleranze
     POSITION_TOLERANCE = 3.0  # Aumentato da 2.0 - meno preciso ma più stabile
@@ -67,6 +66,9 @@ class ControlConfig:
     # Calibrazione manuale
     MANUAL_LINEAR_SPEED = 0.3   # Velocità lineare per controlli manuali
     MANUAL_ANGULAR_SPEED = 0.4  # Velocità angolare per controlli manuali
+    
+    # Controllo vettoriale
+    VECTOR_DISTANCE_SCALE = 30.0  # Distanza arena per velocità massima (era 20.0 - più delicato)
 
 class CommunicationConfig:
     """Configurazione comunicazione"""
@@ -104,6 +106,7 @@ class UIConfig:
     }
     COLOR_TRAJECTORY = (128, 255, 128) # Verde chiaro
     COLOR_BOUNDARY = (255, 255, 255)   # Bianco
+    COLOR_VECTOR = (255, 0, 255)       # Viola (Magenta)
     
     # Text settings
     FONT_SCALE = 0.4

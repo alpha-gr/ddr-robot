@@ -290,11 +290,34 @@ class IntegratedRobotSystem:
                 
                 cv2.circle(overlay_frame, (robot_screen_x, robot_screen_y), 12, robot_color, -1)
                 
-                # Disegna orientamento
+                # Disegna orientamento robot (freccia rossa)
                 theta_rad = np.radians(vision_data["robot_theta"])
                 end_x = int(robot_screen_x + 30 * np.cos(theta_rad))
                 end_y = int(robot_screen_y + 30 * np.sin(theta_rad))
                 cv2.arrowedLine(overlay_frame, (robot_screen_x, robot_screen_y), (end_x, end_y), (0, 0, 255), 3)
+                
+                # DISEGNA VETTORE DI CONTROLLO (viola)
+                vector_info = self.controller.get_vector_info()
+                if vector_info["control_enabled"] and vector_info["intensity"] > 0.01:
+                    # Converti angolo vettore dal sistema robot al sistema mondo
+                    # Il vettore è nel sistema robot, quindi aggiungi l'orientamento del robot
+                    vector_world_angle = theta_rad + vector_info["angle_rad"]
+                    
+                    # Scala lunghezza in base all'intensità (max 50 pixel)
+                    vector_length = min(vector_info["intensity"] * 100, 50)
+                    
+                    # Calcola punto finale del vettore
+                    vector_end_x = int(robot_screen_x + vector_length * np.cos(vector_world_angle))
+                    vector_end_y = int(robot_screen_y + vector_length * np.sin(vector_world_angle))
+                    
+                    # Disegna vettore viola
+                    cv2.arrowedLine(overlay_frame, (robot_screen_x, robot_screen_y), 
+                                   (vector_end_x, vector_end_y), UIConfig.COLOR_VECTOR, 2, tipLength=0.3)
+                    
+                    # Aggiungi testo con intensità
+                    cv2.putText(overlay_frame, f"v={vector_info['intensity']:.2f}", 
+                               (vector_end_x + 5, vector_end_y - 5),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, UIConfig.COLOR_VECTOR, 1)
         
         # Disegna target basato sulla modalità
         if self.follow_mouse_mode:
@@ -364,7 +387,17 @@ class IntegratedRobotSystem:
                 f"Pos: ({vision_data['robot_x']:.1f}, {vision_data['robot_y']:.1f})",
                 f"theta: {vision_data['robot_theta']:.0f}"
             ])
-        
+            
+            # Aggiungi informazioni vettore di controllo
+            vector_info = self.controller.get_vector_info()
+            if vector_info["control_enabled"]:
+                vector_angle_deg = math.degrees(vector_info["angle_rad"])
+                info_lines.extend([
+                    f"--- VETTORE CONTROLLO ---",
+                    f"Intensità: {vector_info['intensity']:.3f}",
+                    f"Angolo: {vector_angle_deg:.1f}°",
+                    f"Distanza: {vector_info['distance']:.1f}"
+                ])
         # Informazioni target basate sulla modalità
         if self.follow_mouse_mode:
             if self.current_mouse_pos and vision_data["robot_found"]:
