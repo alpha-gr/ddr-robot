@@ -71,15 +71,17 @@ def order_points_clockwise(points):
 
 def main():
     # Apri la webcam con risoluzione alta
-    cap = cv2.VideoCapture(0)
+    print("accedo alla webcam")
+    cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
     
     if not cap.isOpened():
         print("Errore: impossibile aprire la webcam")
         return
+    print("webcam aperta")
 
     # Imposta risoluzione alta della webcam
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     
     # Verifica risoluzione effettiva
     actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))

@@ -140,14 +140,6 @@ async def safety_watchdog():
             stop_all()
 
 async def process_json_xy(x, y):
-    """
-    x,y in -1..1.
-    y == -1 => forward full (this matches nipple.js example).
-    Compute forward = -y (so forward positive), then differential:
-      v_l = forward + x
-      v_r = forward - x
-    Clamp to [-1,1], set motors.
-    """
     # map joystick convention: y = -1 -> forward, so forward = -y
     forward = float(y)
     lateral = - float(x)
@@ -161,10 +153,6 @@ async def process_json_xy(x, y):
     _set_direction_and_power(M2_IN1, M2_IN2, _pwm_enb, v_r)
 
 async def process_message(msg: str) -> str:
-    """Accetta:
-       - JSON: {"x":..., "y":...}  oppure {"cmd":"set_speed","m1":..,"m2":..}
-       - plain: 'forward','stop',...
-    """
     global last_cmd_ts
     # try JSON
     try:
