@@ -178,7 +178,7 @@ class VisionSystem:
         if angle_deg < 0:
             angle_deg += 360
             
-        return angle_deg
+        return angle_deg -90
     
     def release(self):
         """Rilascia le risorse della camera"""
@@ -478,8 +478,8 @@ class IntegratedRobotSystem:
                 
                 # Auto-stop solo per target fissi (non in follow mode)
                 if (not self.follow_mouse_mode and 
-                    current_target and 
-                    vision_data["robot_found"] and 
+                    self.mouse_target and  # Usa self.mouse_target invece di current_target
+                    vision_data["robot_found"] and
                     self.controller.is_at_target()):
                     
                     self.logger.info(f"🎉 Target raggiunto! Auto-stop e reset target")
