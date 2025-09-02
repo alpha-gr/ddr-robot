@@ -47,7 +47,7 @@ class PathfindingConfig:
     GRID_SIZE = int(100 / GRID_RESOLUTION)  # 25x25 grid per arena 100x100
     
     # Ostacoli - AUMENTATI per test
-    OBSTACLE_INFLATION_RADIUS = 20  # AUMENTATO: Raggio inflazione ostacoli (unità arena)
+    OBSTACLE_INFLATION_RADIUS = 12  # AUMENTATO: Raggio inflazione ostacoli (unità arena)
     ROBOT_SAFETY_RADIUS = 8.0         # AUMENTATO: Raggio sicurezza robot (unità arena)
     
     # Algoritmo A*
@@ -55,14 +55,14 @@ class PathfindingConfig:
     STRAIGHT_COST = 1.0              # Costo movimenti cardinali
     
     # Ottimizzazione percorso - CONFIGURATE per più punti
-    ENABLE_PATH_SMOOTHING = False    # DISABILITATO per mantenere più punti
-    SMOOTHING_ITERATIONS = 1         # Solo 1 iterazione se abilitato
-    MIN_WAYPOINT_DISTANCE = 1.0      # MOLTO RIDOTTO: più waypoint ravvicinati
-    MAX_WAYPOINT_DISTANCE = 5.0      # NUOVO: Distanza massima tra waypoint consecutivi
+    ENABLE_PATH_SMOOTHING = False
+    SMOOTHING_ITERATIONS = 1         
+    MIN_WAYPOINT_DISTANCE = 3.0      
+    MAX_WAYPOINT_DISTANCE = 8.0     
     
     # Vincoli di navigazione
-    MAX_PATH_LENGTH = 10000           # Lunghezza massima percorso (celle)
-    BOUNDARY_MARGIN = ControlConfig.BOUNDARY_MARGIN  # Margine dai bordi
+    MAX_PATH_LENGTH = 10000          
+    BOUNDARY_MARGIN = ControlConfig.BOUNDARY_MARGIN 
 
 class GridMap:
     """Griglia per pathfinding con gestione ostacoli"""
@@ -95,13 +95,13 @@ class GridMap:
     
     def update_obstacles(self, obstacles: Dict[int, Tuple[float, float]]):
         """Aggiorna la griglia con gli ostacoli rilevati"""
-        # Reset griglia
-        self.grid.fill(0)
-        
         # Hash degli ostacoli per cache
         obstacle_hash = hash(str(sorted(obstacles.items())))
         if obstacle_hash == self._last_obstacle_hash:
             return  # Nessun cambiamento
+        
+        # Reset griglia solo se ci sono cambiamenti
+        self.grid.fill(0)
         
         self._last_obstacle_hash = obstacle_hash
         logger.debug(f"Aggiornamento griglia con {len(obstacles)} ostacoli")

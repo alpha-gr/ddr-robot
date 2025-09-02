@@ -27,6 +27,7 @@ class VisionConfig:
     FRAME_WIDTH = 1280
     FRAME_HEIGHT = 720
     CAPTURE_FLAGS = cv2.CAP_DSHOW
+    MAX_FPS = 30              # FPS massimo per thread vision
 
     # ArUco settings
     ARUCO_DICT = "DICT_4X4_50"
@@ -42,14 +43,18 @@ class VisionConfig:
 
 class ControlConfig:
     """Configurazione algoritmi di controllo"""
-    # PID Parameters (calibrati per stabilità)
-    PID_FORWARD_KP = 0.15      # Ridotto da 0.5 - meno aggressivo
-    PID_FORWARD_KI = 0.01      # Ridotto da 0.1 - meno oscillazioni
-    PID_FORWARD_KD = 0.02      # Ridotto da 0.05 - meno rumore
+    # PID Parameters
+    # P: if you’re not where you want to be, get there.
+    # I: if you haven’t been where you want to be for a long time, get there faster.
+    # D: if you’re getting close to where you want to be, slow down.
 
-    PID_LATERAL_KP = 0.15     # RIDOTTO da 0.3 - correzioni più dolci
-    PID_LATERAL_KI = 0.02     # RIDOTTO da 0.05 - meno accumulo errore
-    PID_LATERAL_KD = 0.01     # RIDOTTO da 0.03 - meno deriva
+    PID_FORWARD_KP = 0.15
+    PID_FORWARD_KI = 0.01
+    PID_FORWARD_KD = 0.02
+
+    PID_LATERAL_KP = 0.15
+    PID_LATERAL_KI = 0.02
+    PID_LATERAL_KD = 0.01
 
     # Limiti controllo
     MAX_SPEED = 0.4 
