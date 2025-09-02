@@ -668,7 +668,7 @@ class IntegratedRobotSystem:
                             self.last_target_sent = current_target
                     
                     # Auto-stop solo per target fissi (non in follow mode)
-                    if (not self.follow_mouse_mode and 
+                    if (not self.follow_mouse_mode and
                         self.mouse_target and  # Usa self.mouse_target invece di current_target
                         vision_data["robot_found"] and
                         self.controller.is_at_target()):

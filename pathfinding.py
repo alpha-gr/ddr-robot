@@ -43,24 +43,25 @@ class PathPoint:
 class PathfindingConfig:
     """Configurazione per il pathfinding"""
     # Griglia di pathfinding
-    GRID_RESOLUTION = 4.0     # Risoluzione griglia (unità arena per cella) 
+    GRID_RESOLUTION = 4     # Risoluzione griglia (unità arena per cella) 
     GRID_SIZE = int(100 / GRID_RESOLUTION)  # 25x25 grid per arena 100x100
     
     # Ostacoli - AUMENTATI per test
-    OBSTACLE_INFLATION_RADIUS = 12.0  # AUMENTATO: Raggio inflazione ostacoli (unità arena)
+    OBSTACLE_INFLATION_RADIUS = 20  # AUMENTATO: Raggio inflazione ostacoli (unità arena)
     ROBOT_SAFETY_RADIUS = 8.0         # AUMENTATO: Raggio sicurezza robot (unità arena)
     
     # Algoritmo A*
     DIAGONAL_COST = 1.41421356       # sqrt(2) per movimenti diagonali
     STRAIGHT_COST = 1.0              # Costo movimenti cardinali
     
-    # Ottimizzazione percorso - DISABILITATE per debug
-    ENABLE_PATH_SMOOTHING = False    # DISABILITATO temporaneamente
-    SMOOTHING_ITERATIONS = 1         # RIDOTTO
-    MIN_WAYPOINT_DISTANCE = 2.0      # RIDOTTO per più waypoint
+    # Ottimizzazione percorso - CONFIGURATE per più punti
+    ENABLE_PATH_SMOOTHING = False    # DISABILITATO per mantenere più punti
+    SMOOTHING_ITERATIONS = 1         # Solo 1 iterazione se abilitato
+    MIN_WAYPOINT_DISTANCE = 1.0      # MOLTO RIDOTTO: più waypoint ravvicinati
+    MAX_WAYPOINT_DISTANCE = 5.0      # NUOVO: Distanza massima tra waypoint consecutivi
     
     # Vincoli di navigazione
-    MAX_PATH_LENGTH = 1000           # Lunghezza massima percorso (celle)
+    MAX_PATH_LENGTH = 10000           # Lunghezza massima percorso (celle)
     BOUNDARY_MARGIN = ControlConfig.BOUNDARY_MARGIN  # Margine dai bordi
 
 class GridMap:
@@ -422,7 +423,7 @@ class AStarPathfinder:
         return smoothed
     
     def _reduce_waypoints(self, path: List[PathPoint]) -> List[PathPoint]:
-        """Riduce il numero di waypoint rimuovendo punti intermedi non necessari"""
+        """Riduce waypoint ma interpola se troppo lontani per controllo fine"""
         if len(path) <= 2:
             logger.debug("Path troppo corto per riduzione")
             return path
@@ -436,11 +437,11 @@ class AStarPathfinder:
             
             for test_idx in range(current_idx + 2, len(path)):
                 if self._is_line_clear(path[current_idx], path[test_idx]):
-                    # Verifica che la distanza sia ragionevole
                     distance = math.sqrt(
                         (path[test_idx].x - path[current_idx].x)**2 + 
                         (path[test_idx].y - path[current_idx].y)**2
                     )
+                    # Accetta il punto se la distanza è ragionevole
                     if distance >= PathfindingConfig.MIN_WAYPOINT_DISTANCE:
                         farthest_idx = test_idx
                     # Non fare break, continua a cercare il punto più lontano
@@ -449,7 +450,36 @@ class AStarPathfinder:
             
             # Aggiungi il punto più lontano raggiungibile
             if farthest_idx < len(path):
-                reduced.append(path[farthest_idx])
+                target_point = path[farthest_idx]
+                current_point = path[current_idx]
+                
+                # Calcola distanza
+                distance = math.sqrt(
+                    (target_point.x - current_point.x)**2 + 
+                    (target_point.y - current_point.y)**2
+                )
+                
+                # NUOVO: Se la distanza è troppo grande, interpola punti intermedi
+                if distance > PathfindingConfig.MAX_WAYPOINT_DISTANCE:
+                    # Calcola quanti punti intermedi servono
+                    num_segments = int(math.ceil(distance / PathfindingConfig.MAX_WAYPOINT_DISTANCE))
+                    
+                    # Aggiungi punti intermedi interpolati
+                    for i in range(1, num_segments):
+                        t = i / num_segments
+                        interp_x = current_point.x + t * (target_point.x - current_point.x)
+                        interp_y = current_point.y + t * (target_point.y - current_point.y)
+                        
+                        # Verifica che il punto interpolato sia sicuro
+                        grid_x, grid_y = self.grid_map.arena_to_grid(interp_x, interp_y)
+                        if self.grid_map.is_free(grid_x, grid_y):
+                            interp_point = PathPoint(interp_x, interp_y)
+                            reduced.append(interp_point)
+                        else:
+                            logger.warning(f"Punto interpolato non sicuro: ({interp_x:.1f}, {interp_y:.1f})")
+                
+                # Aggiungi il punto target finale
+                reduced.append(target_point)
                 current_idx = farthest_idx
             else:
                 break
@@ -458,7 +488,7 @@ class AStarPathfinder:
         if len(reduced) == 0 or reduced[-1] != path[-1]:
             reduced.append(path[-1])
         
-        logger.debug(f"Waypoint ridotti da {len(path)} a {len(reduced)}")
+        logger.debug(f"Waypoint: {len(path)} grezzo -> {len(reduced)} finale (con interpolazione)")
         return reduced
     
     def _is_line_clear(self, start: PathPoint, end: PathPoint) -> bool:
