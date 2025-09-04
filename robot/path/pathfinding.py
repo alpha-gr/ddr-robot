@@ -43,12 +43,12 @@ class PathPoint:
 class PathfindingConfig:
     """Configurazione per il pathfinding"""
     # Griglia di pathfinding
-    GRID_RESOLUTION = 4     # Risoluzione griglia (unità arena per cella) 
-    GRID_SIZE = int(100 / GRID_RESOLUTION)  # 25x25 grid per arena 100x100
+    GRID_RESOLUTION = 1     # Risoluzione griglia (unità arena per cella) 
+    GRID_SIZE = int(100 / GRID_RESOLUTION)  # 50x50 grid per arena 100x100
     
     # Ostacoli - AUMENTATI per test
-    OBSTACLE_INFLATION_RADIUS = 12  # AUMENTATO: Raggio inflazione ostacoli (unità arena)
-    ROBOT_SAFETY_RADIUS = 8.0         # AUMENTATO: Raggio sicurezza robot (unità arena)
+    OBSTACLE_INFLATION_RADIUS = 12  # Raggio inflazione ostacoli (unità arena)
+    ROBOT_SAFETY_RADIUS = 4         # Raggio sicurezza robot (unità arena)
     
     # Algoritmo A*
     DIAGONAL_COST = 1.41421356       # sqrt(2) per movimenti diagonali

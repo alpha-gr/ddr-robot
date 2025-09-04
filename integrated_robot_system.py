@@ -13,207 +13,32 @@ from typing import Optional, Tuple, Dict
 from datetime import datetime
 
 # Import dei moduli del nostro sistema
-from robot_controller import RobotController, RobotState, TargetState
+from robot.ui.displaymanager import DisplayManager
+from robot.vision.coords import Coordinates
+from robot.vision.visionsystem import VisionSystem
+from robot.control.robot_controller import RobotController, RobotState, TargetState
 from config import VisionConfig, SystemConfig, UIConfig, ControlConfig
-from pathfinding import PathfindingSystem, PathPoint
+from robot.path.pathfinding import PathfindingSystem, PathPoint
 
 # Setup logging
 logging.basicConfig(level=getattr(logging, SystemConfig.LOG_LEVEL))
-
-class VisionSystem:
-    """Sistema di visione basato sui marker ArUco"""
-    
-    def __init__(self):
-        self.cap = None
-        self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-        self.parameters = cv2.aruco.DetectorParameters()
-        self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.parameters)
-        
-        # Stati
-        self.arena_markers = {}
-        self.robot_position = None
-        self.robot_orientation = None
-        self.last_detection_time = 0
-        
-        self.logger = logging.getLogger(__name__)
-    
-    def initialize_camera(self) -> bool:
-        """Inizializza la webcam"""
-        try:
-            self.cap = cv2.VideoCapture(VisionConfig.CAMERA_INDEX, VisionConfig.CAPTURE_FLAGS)
-            
-            if not self.cap.isOpened():
-                self.logger.error("Impossibile aprire la webcam")
-                return False
-            
-            # Imposta risoluzione
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, VisionConfig.FRAME_WIDTH)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, VisionConfig.FRAME_HEIGHT)
-            
-            # Verifica risoluzione effettiva
-            actual_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            actual_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            self.logger.info(f"Camera inizializzata: {actual_width}x{actual_height}")
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Errore inizializzazione camera: {e}")
-            return False
-    
-    def process_frame(self, frame) -> Dict:
-        """Processa un frame per rilevare marker e calcolare posizioni"""
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = self.detector.detectMarkers(gray)
-        
-        result = {
-            "robot_found": False,
-            "robot_x": 0.0,
-            "robot_y": 0.0, 
-            "robot_theta": 0.0,
-            "arena_markers": {},
-            "arena_valid": False,
-            "obstacles": {}
-        }
-        
-        if ids is None:
-            return result
-        
-        # Processo marker rilevati
-        arena_markers = {}
-        robot_data = None
-        obstacles = {}
-        
-        for i, marker_id in enumerate(ids.flatten()):
-            # Calcola centro marker
-            corner = corners[i][0]
-            center_x = int(np.mean(corner[:, 0]))
-            center_y = int(np.mean(corner[:, 1]))
-            center = (center_x, center_y)
-            
-            if marker_id == VisionConfig.ROBOT_MARKER_ID:
-                # Marker robot
-                robot_data = {
-                    "center": center,
-                    "corners": corner
-                }
-                
-            elif marker_id in VisionConfig.ARENA_MARKER_IDS:
-                # Marker arena
-                arena_markers[marker_id] = center
-                
-            elif marker_id > 4:
-                # Marker ostacoli (ID > 4)
-                obstacles[marker_id] = center
-        
-        # Processa marker arena
-        if len(arena_markers) >= 2:
-            result["arena_markers"] = arena_markers
-            result["arena_valid"] = True
-            self.arena_markers = arena_markers
-        
-        # Processa ostacoli
-        result["obstacles"] = obstacles
-        
-        # Processa robot se trovato e arena valida
-        if robot_data and result["arena_valid"]:
-            robot_arena_coords = self._transform_to_arena_coordinates(
-                robot_data["center"], arena_markers
-            )
-            
-            if robot_arena_coords:
-                result["robot_found"] = True
-                result["robot_x"], result["robot_y"] = robot_arena_coords
-                result["robot_theta"] = self._calculate_orientation(robot_data["corners"])
-                self.last_detection_time = time.time()
-        
-        return result
-    
-    def _transform_to_arena_coordinates(self, robot_center, arena_markers) -> Optional[Tuple[float, float]]:
-        """Trasforma coordinate pixel in coordinate arena [0-100]"""
-        if len(arena_markers) < 2:
-            return None
-        
-        arena_points = list(arena_markers.values())
-        all_x = [p[0] for p in arena_points]
-        all_y = [p[1] for p in arena_points]
-        
-        min_x, max_x = min(all_x), max(all_x)
-        min_y, max_y = min(all_y), max(all_y)
-        
-        if max_x == min_x or max_y == min_y:
-            return None
-        
-        norm_x = (robot_center[0] - min_x) / (max_x - min_x)
-        norm_y = (robot_center[1] - min_y) / (max_y - min_y)
-        
-        arena_x = norm_x * 100
-        arena_y = norm_y * 100
-        
-        return arena_x, arena_y
-    
-    def get_obstacle_arena_coordinates(self, obstacles_dict, arena_markers) -> Dict:
-        """Trasforma le coordinate degli ostacoli in coordinate arena [0-100]"""
-        obstacle_arena_coords = {}
-        
-        for obs_id, obs_center in obstacles_dict.items():
-            arena_coords = self._transform_to_arena_coordinates(obs_center, arena_markers)
-            if arena_coords:
-                obstacle_arena_coords[obs_id] = arena_coords
-                
-        return obstacle_arena_coords
-    
-    def _transform_arena_to_screen(self, arena_point, arena_markers, frame_width, frame_height):
-        """Trasforma coordinate arena [0-100] in coordinate schermo"""
-        if len(arena_markers) < 2:
-            return None
-        
-        arena_points = list(arena_markers.values())
-        all_x = [p[0] for p in arena_points]
-        all_y = [p[1] for p in arena_points]
-        
-        min_x, max_x = min(all_x), max(all_x)
-        min_y, max_y = min(all_y), max(all_y)
-        
-        if max_x == min_x or max_y == min_y:
-            return None
-        
-        # Trasformazione inversa: arena [0-100] -> schermo [pixel]
-        norm_x = arena_point[0] / 100.0
-        norm_y = arena_point[1] / 100.0
-        
-        screen_x = int(min_x + norm_x * (max_x - min_x))
-        screen_y = int(min_y + norm_y * (max_y - min_y))
-        
-        return screen_x, screen_y
-    
-    def _calculate_orientation(self, corners) -> float:
-        """Calcola orientamento del robot in gradi"""
-        # Vettore dal primo al secondo corner
-        dx = corners[1, 0] - corners[0, 0]
-        dy = corners[1, 1] - corners[0, 1]
-        angle_rad = np.arctan2(dy, dx)
-        angle_deg = np.degrees(angle_rad)
-        
-        # Normalizza 0-360
-        if angle_deg < 0:
-            angle_deg += 360
-            
-        return angle_deg -90
-    
-    def release(self):
-        """Rilascia le risorse della camera"""
-        if self.cap:
-            self.cap.release()
 
 class IntegratedRobotSystem:
     """Sistema integrato completo"""
     
     def __init__(self):
         # Sottosistemi
-        self.vision = VisionSystem()
+        self.coords = Coordinates()
         self.controller = RobotController()
-        self.pathfinding = PathfindingSystem()  # NUOVO: Sistema di pathfinding
+        self.pathfinding = PathfindingSystem()
+        self.vision = VisionSystem(self.coords)
+        self.display = DisplayManager(
+            self.vision, 
+            self.controller, 
+            self.coords, 
+            self.pathfinding,
+            system_ref=self  # Passa riferimento al sistema
+        )
         
         # Stati
         self.running = False
@@ -221,7 +46,7 @@ class IntegratedRobotSystem:
         self.target_set = False
         
         # Modalità di navigazione
-        self.pathfinding_mode = False  # NUOVO: Toggle pathfinding vs controllo diretto
+        self.pathfinding_mode = False
         
         # Performance monitoring
         self.frame_count = 0
@@ -241,32 +66,6 @@ class IntegratedRobotSystem:
         
         self.logger = logging.getLogger(__name__)
     
-    def mouse_callback(self, event, x, y, flags, param):
-        """Callback per mouse - gestisce target fisso o follow mode"""
-        # Aggiorna sempre la posizione corrente del mouse
-        if len(self.vision.arena_markers) >= 2:
-            arena_coords = self.vision._transform_to_arena_coordinates((x, y), self.vision.arena_markers)
-            if arena_coords:
-                self.current_mouse_pos = arena_coords
-        
-        # Click per target fisso (solo se non in follow mode)
-        if event == cv2.EVENT_LBUTTONDOWN and not self.follow_mouse_mode:
-            if self.current_mouse_pos:
-                arena_x, arena_y = self.current_mouse_pos
-                new_target = (arena_x, arena_y)
-                
-                # Evita aggiornamenti troppo frequenti per click vicini
-                if (self.mouse_target is None or 
-                    abs(new_target[0] - self.mouse_target[0]) > 1.0 or 
-                    abs(new_target[1] - self.mouse_target[1]) > 1.0):
-                    
-                    self.mouse_target = new_target
-                    self.logger.info(f"🎯 Target fisso: ({arena_x:.1f}, {arena_y:.1f})")
-                else:
-                    self.logger.debug("Target troppo vicino al precedente, ignorato")
-            else:
-                self.logger.warning("Impossibile calcolare coordinate arena per il target")
-    
     async def initialize(self) -> bool:
         """Inizializza tutto il sistema"""
         self.logger.info("Inizializzando sistema integrato...")
@@ -281,317 +80,6 @@ class IntegratedRobotSystem:
             
         self.logger.info("Sistema integrato inizializzato con successo")
         return True
-    
-    def draw_overlay(self, frame, vision_data) -> np.ndarray:
-        """Disegna overlay informativo sul frame"""
-        overlay_frame = frame.copy()
-        frame_height, frame_width = frame.shape[:2]
-        
-        # Disegna marker arena
-        for marker_id, center in vision_data["arena_markers"].items():
-            color = UIConfig.COLOR_ARENA_MARKERS.get(marker_id, (128, 128, 128))
-            cv2.circle(overlay_frame, center, 8, color, -1)
-            cv2.putText(overlay_frame, str(marker_id), 
-                       (center[0] + 12, center[1] + 5), 
-                       cv2.FONT_HERSHEY_SIMPLEX, UIConfig.FONT_SCALE, color, UIConfig.FONT_THICKNESS)
-        
-        # Disegna ostacoli (marker ID > 4)
-        for marker_id, center in vision_data["obstacles"].items():
-            color = UIConfig.COLOR_OBSTACLES
-            # Disegna ostacolo come quadrato rosso più grande
-            cv2.rectangle(overlay_frame, 
-                         (center[0] - 12, center[1] - 12), 
-                         (center[0] + 12, center[1] + 12), 
-                         color, -1)
-            # Bordo nero per visibilità
-            cv2.rectangle(overlay_frame, 
-                         (center[0] - 12, center[1] - 12), 
-                         (center[0] + 12, center[1] + 12), 
-                         (0, 0, 0), 2)
-            # ID dell'ostacolo
-            cv2.putText(overlay_frame, f"OBS{marker_id}", 
-                       (center[0] + 15, center[1] + 5), 
-                       cv2.FONT_HERSHEY_SIMPLEX, UIConfig.FONT_SCALE, color, UIConfig.FONT_THICKNESS)
-        
-        # Disegna robot se trovato
-        if vision_data["robot_found"]:
-            # Usa la trasformazione corretta arena -> schermo
-            robot_screen_pos = self.vision._transform_arena_to_screen(
-                (vision_data["robot_x"], vision_data["robot_y"]), 
-                vision_data["arena_markers"], frame_width, frame_height
-            )
-            
-            if robot_screen_pos:
-                robot_screen_x, robot_screen_y = robot_screen_pos
-                
-                # Cambia colore robot se ha raggiunto il target
-                if self.mouse_target and self.controller.is_at_target():
-                    robot_color = (0, 255, 0)  # Verde = target raggiunto
-                    cv2.circle(overlay_frame, (robot_screen_x, robot_screen_y), 15, robot_color, 3)  # Bordo verde
-                    cv2.putText(overlay_frame, "STOP", 
-                               (robot_screen_x - 20, robot_screen_y - 25),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, robot_color, 2)
-                else:
-                    robot_color = UIConfig.COLOR_ROBOT
-                
-                cv2.circle(overlay_frame, (robot_screen_x, robot_screen_y), 12, robot_color, -1)
-                
-                # Disegna orientamento robot (freccia rossa)
-                theta_rad = np.radians(vision_data["robot_theta"])
-                end_x = int(robot_screen_x + 30 * np.cos(theta_rad))
-                end_y = int(robot_screen_y + 30 * np.sin(theta_rad))
-                cv2.arrowedLine(overlay_frame, (robot_screen_x, robot_screen_y), (end_x, end_y), (0, 0, 255), 3)
-                
-                # DISEGNA VETTORE DI CONTROLLO (viola)
-                vector_info = self.controller.get_vector_info()
-                if vector_info["control_enabled"] and vector_info["intensity"] > 0.01:
-                    # Converti angolo vettore dal sistema robot al sistema mondo
-                    # Il vettore è nel sistema robot, quindi aggiungi l'orientamento del robot
-                    vector_world_angle = theta_rad + vector_info["angle_rad"]
-                    
-                    # Scala lunghezza in base all'intensità (max 50 pixel)
-                    vector_length = min(vector_info["intensity"] * 100, 50)
-                    
-                    # Calcola punto finale del vettore
-                    vector_end_x = int(robot_screen_x + vector_length * np.cos(vector_world_angle))
-                    vector_end_y = int(robot_screen_y + vector_length * np.sin(vector_world_angle))
-                    
-                    # Disegna vettore viola
-                    cv2.arrowedLine(overlay_frame, (robot_screen_x, robot_screen_y), 
-                                   (vector_end_x, vector_end_y), UIConfig.COLOR_VECTOR, 2, tipLength=0.3)
-                    
-                    # Aggiungi testo con intensità
-                    cv2.putText(overlay_frame, f"v={vector_info['intensity']:.2f}", 
-                               (vector_end_x + 5, vector_end_y - 5),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, UIConfig.COLOR_VECTOR, 1)
-        
-        # Disegna target basato sulla modalità
-        if self.follow_mouse_mode:
-            # FOLLOW MODE: Disegna cursore mouse come target
-            if self.current_mouse_pos:
-                target_screen_pos = self.vision._transform_arena_to_screen(
-                    self.current_mouse_pos, vision_data["arena_markers"], frame_width, frame_height
-                )
-                
-                if target_screen_pos:
-                    target_screen_x, target_screen_y = target_screen_pos
-                    # Cursore più dinamico per follow mode
-                    cv2.circle(overlay_frame, (target_screen_x, target_screen_y), 8, (0, 255, 255), 2)  # Giallo
-                    cv2.circle(overlay_frame, (target_screen_x, target_screen_y), 3, (0, 255, 255), -1)  # Centro
-                    cv2.putText(overlay_frame, "FOLLOW", 
-                               (target_screen_x + 15, target_screen_y - 10),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
-        else:
-            # TARGET MODE: Disegna target fisso
-            if self.mouse_target:
-                target_screen_pos = self.vision._transform_arena_to_screen(
-                    self.mouse_target, vision_data["arena_markers"], frame_width, frame_height
-                )
-                
-                if target_screen_pos:
-                    target_screen_x, target_screen_y = target_screen_pos
-                    cv2.circle(overlay_frame, (target_screen_x, target_screen_y), 15, UIConfig.COLOR_TARGET, 3)
-                    cv2.putText(overlay_frame, "TARGET", 
-                               (target_screen_x + 20, target_screen_y - 10),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, UIConfig.COLOR_TARGET, 2)
-        
-        # NUOVO: Disegna percorso pathfinding
-        if self.pathfinding_mode and vision_data["arena_valid"]:
-            self._draw_pathfinding_overlay(overlay_frame, vision_data, frame_width, frame_height)
-        
-        # Disegna perimetro arena
-        if len(vision_data["arena_markers"]) >= 3:
-            points = list(vision_data["arena_markers"].values())
-            # Ordina punti per angolo
-            center = np.mean(points, axis=0)
-            angles = [np.arctan2(p[1] - center[1], p[0] - center[0]) for p in points]
-            sorted_points = [p for _, p in sorted(zip(angles, points))]
-            
-            for i in range(len(sorted_points)):
-                start = sorted_points[i]
-                end = sorted_points[(i + 1) % len(sorted_points)]
-                cv2.line(overlay_frame, start, end, UIConfig.COLOR_BOUNDARY, 3)
-        
-        # Panel informazioni
-        self._draw_info_panel(overlay_frame, vision_data)
-        
-        return overlay_frame
-    
-    def _draw_info_panel(self, frame, vision_data):
-        """Disegna pannello informazioni"""
-        frame_height, frame_width = frame.shape[:2]
-        
-        info_lines = [
-            f"FPS: {self.current_fps:.1f}",
-            f"Arena: {len(vision_data['arena_markers'])}/4",
-            f"Obstacles: {len(vision_data['obstacles'])}",
-            f"Robot: {'OK' if vision_data['robot_found'] else 'LOST'}",
-            f"Control: {'ON' if self.controller.control_enabled else 'OFF'}",
-            f"Mode: {'🐭 FOLLOW' if self.follow_mouse_mode else '🎯 TARGET'}",
-            f"Navigation: {'🗺️ PATHFINDING' if self.pathfinding_mode else '➡️ DIRECT'}",
-            "--- CALIBRAZIONE ---",
-            "WASD per muoversi",
-            "SPACE per fermarsi"
-        ]
-        
-        if vision_data["robot_found"]:
-            info_lines.extend([
-                f"Pos: ({vision_data['robot_x']:.1f}, {vision_data['robot_y']:.1f})",
-                f"theta: {vision_data['robot_theta']:.0f}"
-            ])
-            
-            # Aggiungi informazioni vettore di controllo
-            vector_info = self.controller.get_vector_info()
-            if vector_info["control_enabled"]:
-                vector_angle_deg = math.degrees(vector_info["angle_rad"])
-                info_lines.extend([
-                    f"--- VETTORE CONTROLLO ---",
-                    f"Intensità: {vector_info['intensity']:.3f}",
-                    f"Angolo: {vector_angle_deg:.1f}°",
-                    f"Distanza: {vector_info['distance']:.1f}"
-                ])
-        # Informazioni target basate sulla modalità
-        if self.follow_mouse_mode:
-            if self.current_mouse_pos and vision_data["robot_found"]:
-                # Distanza dal cursore mouse
-                error_x = self.current_mouse_pos[0] - vision_data["robot_x"]
-                error_y = self.current_mouse_pos[1] - vision_data["robot_y"]
-                distance = math.sqrt(error_x**2 + error_y**2)
-                info_lines.append(f"Mouse: ({self.current_mouse_pos[0]:.1f}, {self.current_mouse_pos[1]:.1f})")
-                info_lines.append(f"Dist: {distance:.1f} unità")
-            elif self.current_mouse_pos:
-                info_lines.append(f"Mouse: ({self.current_mouse_pos[0]:.1f}, {self.current_mouse_pos[1]:.1f})")
-                info_lines.append("Dist: ? (robot perso)")
-            else:
-                info_lines.append("Mouse: fuori arena")
-        else:
-            # Target fisso
-            if self.mouse_target:
-                if vision_data["robot_found"]:
-                    # Calcola distanza dal target
-                    error_x = self.mouse_target[0] - vision_data["robot_x"]
-                    error_y = self.mouse_target[1] - vision_data["robot_y"]
-                    distance = math.sqrt(error_x**2 + error_y**2)
-                    
-                    if self.controller.is_at_target():
-                        info_lines.append(f"Target: 🎉 RAGGIUNTO!")
-                    else:
-                        info_lines.append(f"Target: ({self.mouse_target[0]:.1f}, {self.mouse_target[1]:.1f})")
-                        info_lines.append(f"Dist: {distance:.1f} unità")
-                else:
-                    info_lines.append(f"Target: ({self.mouse_target[0]:.1f}, {self.mouse_target[1]:.1f})")
-                    info_lines.append("Dist: ? (robot perso)")
-            else:
-                info_lines.append("Target: Non impostato")
-        
-        # Informazioni ostacoli
-        if vision_data["obstacles"]:
-            info_lines.append("--- OSTACOLI ---")
-            for obs_id in sorted(vision_data["obstacles"].keys()):
-                # Calcola coordinate arena dell'ostacolo se possibile
-                if vision_data["arena_valid"]:
-                    obs_center = vision_data["obstacles"][obs_id]
-                    obs_arena_coords = self.vision._transform_to_arena_coordinates(
-                        obs_center, vision_data["arena_markers"]
-                    )
-                    if obs_arena_coords:
-                        info_lines.append(f"OBS{obs_id}: ({obs_arena_coords[0]:.1f}, {obs_arena_coords[1]:.1f})")
-                    else:
-                        info_lines.append(f"OBS{obs_id}: rilevato")
-                else:
-                    info_lines.append(f"OBS{obs_id}: rilevato")
-        
-        # NUOVO: Informazioni pathfinding
-        if self.pathfinding_mode:
-            path_info = self.pathfinding.get_path_info()
-            info_lines.append("--- PATHFINDING ---")
-            if path_info["has_path"]:
-                info_lines.extend([
-                    f"Waypoints: {path_info['current_waypoint']}/{path_info['total_waypoints']}",
-                    f"Rimangono: {path_info['waypoints_remaining']}",
-                    f"Status: {'COMPLETE' if path_info['is_complete'] else 'NAVIGATING'}"
-                ])
-                
-                # Info waypoint corrente
-                current_wp = self.pathfinding.get_current_waypoint()
-                if current_wp and vision_data["robot_found"]:
-                    wp_distance = math.sqrt(
-                        (current_wp.x - vision_data["robot_x"])**2 + 
-                        (current_wp.y - vision_data["robot_y"])**2
-                    )
-                    info_lines.append(f"Next WP: ({current_wp.x:.1f}, {current_wp.y:.1f})")
-                    info_lines.append(f"WP Dist: {wp_distance:.1f}")
-            else:
-                info_lines.append("Path: Calcolo...")
-        
-        # Sfondo pannello
-        panel_width = 250
-        panel_height = len(info_lines) * 20 + 10
-        start_x = frame_width - panel_width - 10
-        start_y = 10
-        
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (start_x, start_y), 
-                     (start_x + panel_width, start_y + panel_height), 
-                     (0, 0, 0), -1)
-        cv2.addWeighted(overlay, UIConfig.INFO_PANEL_ALPHA, frame, 1 - UIConfig.INFO_PANEL_ALPHA, 0, frame)
-        
-        # Testo
-        y_offset = start_y + 18
-        for line in info_lines:
-            cv2.putText(frame, line, (start_x + 5, y_offset), 
-                       cv2.FONT_HERSHEY_SIMPLEX, UIConfig.FONT_SCALE, (255, 255, 255), UIConfig.FONT_THICKNESS)
-            y_offset += 18
-    
-    def _draw_pathfinding_overlay(self, frame, vision_data, frame_width, frame_height):
-        """Disegna overlay del pathfinding (percorso e waypoint)"""
-        if not self.pathfinding_mode:
-            return
-            
-        path_info = self.pathfinding.get_path_info()
-        if not path_info["has_path"]:
-            return
-        
-        full_path = self.pathfinding.get_full_path()
-        if len(full_path) < 2:
-            return
-            
-        # Disegna linee del percorso
-        prev_screen_pos = None
-        for i, path_point in enumerate(full_path):
-            screen_pos = self.vision._transform_arena_to_screen(
-                (path_point.x, path_point.y), vision_data["arena_markers"], frame_width, frame_height
-            )
-            
-            if screen_pos and prev_screen_pos:
-                # Linea del percorso
-                cv2.line(frame, prev_screen_pos, screen_pos, UIConfig.COLOR_PATH, 3)
-            
-            prev_screen_pos = screen_pos
-        
-        # Disegna waypoint
-        current_waypoint_index = path_info["current_waypoint"]
-        
-        for i, path_point in enumerate(full_path):
-            screen_pos = self.vision._transform_arena_to_screen(
-                (path_point.x, path_point.y), vision_data["arena_markers"], frame_width, frame_height
-            )
-            
-            if screen_pos:
-                if i == current_waypoint_index:
-                    # Waypoint corrente - più grande e giallo
-                    cv2.circle(frame, screen_pos, 8, UIConfig.COLOR_CURRENT_WAYPOINT, -1)
-                    cv2.circle(frame, screen_pos, 10, (0, 0, 0), 2)  # Bordo nero
-                    cv2.putText(frame, f"WP{i}", 
-                               (screen_pos[0] + 12, screen_pos[1] - 5),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, UIConfig.COLOR_CURRENT_WAYPOINT, 1)
-                elif i < current_waypoint_index:
-                    # Waypoint già visitati - grigi
-                    cv2.circle(frame, screen_pos, 4, (128, 128, 128), -1)
-                else:
-                    # Waypoint futuri - arancioni
-                    cv2.circle(frame, screen_pos, 6, UIConfig.COLOR_WAYPOINT, -1)
-                    cv2.circle(frame, screen_pos, 7, (0, 0, 0), 1)  # Bordo nero sottile
     
     async def main_loop(self):
         """Loop principale del sistema"""
@@ -679,10 +167,10 @@ class IntegratedRobotSystem:
                         self.last_target_sent = None
                 
                 # Disegna overlay
-                display_frame = self.draw_overlay(frame, vision_data)
+                display_frame = self.display.draw_overlay(frame, vision_data)
                 
                 # Setup mouse callback
-                cv2.setMouseCallback(window_name, self.mouse_callback, display_frame)
+                cv2.setMouseCallback(window_name, self.display.mouse_callback, display_frame)
                 
                 # Mostra frame
                 cv2.imshow(window_name, display_frame)
@@ -790,7 +278,7 @@ class IntegratedRobotSystem:
         obstacles_arena = {}
         if vision_data["obstacles"] and vision_data["arena_valid"]:
             for obs_id, obs_center in vision_data["obstacles"].items():
-                obs_arena_coords = self.vision._transform_to_arena_coordinates(
+                obs_arena_coords = self.coords._transform_to_arena_coordinates(
                     obs_center, vision_data["arena_markers"]
                 )
                 if obs_arena_coords:

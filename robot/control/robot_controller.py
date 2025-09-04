@@ -11,7 +11,7 @@ from typing import Optional, Tuple, Dict, List
 from dataclasses import dataclass
 
 from config import ControlConfig, SystemConfig, VisionConfig
-from robot_communication import RobotCommunication, joystick_to_differential_drive
+from robot.comm.robot_communication import RobotCommunication, joystick_to_differential_drive
 
 @dataclass
 class RobotState:
@@ -216,12 +216,6 @@ class RobotController:
         joystick_x = max(-max_intensity, min(max_intensity, velocity_robot_x))
         joystick_y = max(-ControlConfig.MAX_SPEED, 
                           min(ControlConfig.MAX_SPEED, velocity_robot_y))
-        
-        # Applica filtro smoothing angolare
-        # if hasattr(self, 'last_angular_speed'):
-        #     angular_speed = (self.angular_smooth_factor * self.last_angular_speed + 
-        #                    (1.0 - self.angular_smooth_factor) * angular_speed)
-        #     self.last_angular_speed = angular_speed
         
         # SALVA INFORMAZIONI VETTORE per visualizzazione
         self.last_vector_intensity = intensity
