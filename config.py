@@ -48,16 +48,17 @@ class ControlConfig:
     # I: if you haven’t been where you want to be for a long time, get there faster.
     # D: if you’re getting close to where you want to be, slow down.
 
-    PID_FORWARD_KP = 0.15
-    PID_FORWARD_KI = 0.01
-    PID_FORWARD_KD = 0.02
+    PID_FORWARD_KP = 1.0
+    PID_FORWARD_KI = 0.0
+    PID_FORWARD_KD = 0.0
 
-    PID_LATERAL_KP = 0.15
-    PID_LATERAL_KI = 0.02
-    PID_LATERAL_KD = 0.01
+    PID_ANGULAR_KP = 1.0
+    PID_ANGULAR_KI = 0.0
+    PID_ANGULAR_KD = 0.0
 
     # Limiti controllo
     MAX_SPEED = 0.4 
+    MAX_OMEGA = 1.0
     
     # Controllo vettoriale
     VECTOR_DISTANCE_SCALE = 30.0  # Distanza arena per velocità massima (era 20.0 - più delicato)
