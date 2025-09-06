@@ -25,3 +25,10 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+*.lock
+*.bin
+qak/robotqak/.gradle/8.12.1/gc.properties
+qak/robotqak/.gradle/buildOutputCleanup/cache.properties
+qak/robotqak/.gradle/configuration-cache/gc.properties
+qak/robotqak/.gradle/file-system.probe
+qak/robotqak/.gradle/vcs-1/gc.properties
