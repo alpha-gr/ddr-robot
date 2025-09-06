@@ -1,0 +1,33 @@
+System robotqak
+
+// CARGOROBOT
+Request engage : engage(OWNER, STEPTIME) 								// sent by Cargorobot 
+Reply engagedone : engagedone(ARG) for engage 							// sent by basicrobot				
+Reply engagerefused : engagerefused(ARG) for engage						// sent by basicrobot
+
+Dispatch disengage    : disengage(ARG)									// sent by Cargorobot
+
+Request pickUpCargo : pickUpCargo(SLOT) 								// sent by Cargoservice
+Reply pickUpDone:pickUpDone(SLOT)	for pickUpCargo						// sent by Carborobot 
+
+Request moverobot : moverobot(TARGETX, TARGETY)							// sent by Cargorobot			
+Reply moverobotdone : moverobotok(ARG) for moverobot 					// sent by basicrobot
+Reply moverobotfailed: moverobotfailed(PLANDONE, PLANTODO) for moverobot// sent by basicrobot
+
+Event alarm : alarm(X)													// sent by Cargorobot
+Dispatch dropDone : dropDone(SLOT)										// sent by Cargorobot
+Dispatch setdirection : dir( D )"D =up|down!left|right"					// sent by Cargorobot
+
+//SOLO A SCOPO DI DEBUG
+Request getenvmap     : getenvmap(X)									// sent by Cargorobot
+Reply   envmap        : envmap(MAP)  for getenvmap 						// sent by Cargorobot
+Dispatch cmd    : cmd( MOVE )  "MOVE = a|d|l|r|h   "
+Dispatch setrobotstate: setpos(X,Y,D)
+
+Context ctxbasicrobot ip  [host="localhost" port=8020]
+
+QActor basicrobot context ctxbasicrobot {
+	State s0 initial{
+		println("robot starting")
+	}
+}
