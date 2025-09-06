@@ -251,21 +251,21 @@ class DisplayManager:
                 info_lines.append("Target: Non impostato")
         
         # Informazioni ostacoli
-        if vision_data["obstacles"]:
-            info_lines.append("--- OSTACOLI ---")
-            for obs_id in sorted(vision_data["obstacles"].keys()):
-                # Calcola coordinate arena dell'ostacolo se possibile
-                if vision_data["arena_valid"]:
-                    obs_center = vision_data["obstacles"][obs_id]
-                    obs_arena_coords = self.coords._transform_to_arena_coordinates(
-                        obs_center, vision_data["arena_markers"]
-                    )
-                    if obs_arena_coords:
-                        info_lines.append(f"OBS{obs_id}: ({obs_arena_coords[0]:.1f}, {obs_arena_coords[1]:.1f})")
-                    else:
-                        info_lines.append(f"OBS{obs_id}: rilevato")
-                else:
-                    info_lines.append(f"OBS{obs_id}: rilevato")
+        # if vision_data["obstacles"]:
+        #     info_lines.append("--- OSTACOLI ---")
+        #     for obs_id in sorted(vision_data["obstacles"].keys()):
+        #         # Calcola coordinate arena dell'ostacolo se possibile
+        #         if vision_data["arena_valid"]:
+        #             obs_center = vision_data["obstacles"][obs_id]
+        #             obs_arena_coords = self.coords._transform_to_arena_coordinates(
+        #                 obs_center, vision_data["arena_markers"]
+        #             )
+        #             if obs_arena_coords:
+        #                 info_lines.append(f"OBS{obs_id}: ({obs_arena_coords[0]:.1f}, {obs_arena_coords[1]:.1f})")
+        #             else:
+        #                 info_lines.append(f"OBS{obs_id}: rilevato")
+        #         else:
+        #             info_lines.append(f"OBS{obs_id}: rilevato")
         
         # NUOVO: Informazioni pathfinding
         if self.system.pathfinding_mode:

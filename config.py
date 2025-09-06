@@ -78,7 +78,7 @@ class ControlConfig:
 class CommunicationConfig:
     """Configurazione comunicazione"""
     # WebSocket settings - CONFIGURARE CON IP RASPBERRY PI REALE
-    WS_HOST = "192.168.1.16"
+    WS_HOST = "192.168.1.9"
     WS_PORT = 8765
     WS_TIMEOUT = 1.0          # Timeout connessione
     

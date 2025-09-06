@@ -35,7 +35,7 @@
   <div id="status">Disconnesso</div>
 
   <script>
-    const ws = new WebSocket("ws://" + "192.168.1.16" + ":8765");
+    const ws = new WebSocket("ws://" + "192.168.1.9" + ":8765");
     ws.onopen = () => { document.getElementById("status").innerText = "Connesso"; };
     ws.onclose = () => { document.getElementById("status").innerText = "Disconnesso"; };
 
