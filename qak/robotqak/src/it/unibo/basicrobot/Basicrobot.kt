@@ -19,6 +19,7 @@ import org.json.simple.JSONObject
 
 
 //User imports JAN2024
+import main.java.RobotClient
 
 class Basicrobot ( name: String, scope: CoroutineScope, isconfined: Boolean=false, isdynamic: Boolean=false ) : 
           ActorBasicFsm( name, scope, confined=isconfined, dynamically=isdynamic ){
@@ -29,10 +30,12 @@ class Basicrobot ( name: String, scope: CoroutineScope, isconfined: Boolean=fals
 	override fun getBody() : (ActorBasicFsm.() -> Unit){
 		//val interruptedStateTransitions = mutableListOf<Transition>()
 		//IF actor.withobj !== null val actor.withobj.name» = actor.withobj.method»ENDIF
+		val robotclient = RobotClient("ws://localhost:8765")
 		return { //this:ActionBasciFsm
 				state("s0") { //this:State
 					action { //it:State
-						CommUtils.outblack("robot | starting...")
+						CommUtils.outblack("basicrobot | mi connetto al server...")
+						 robotclient.connect()  
 						//genTimer( actor, state )
 					}
 					//After Lenzi Aug2002
@@ -42,7 +45,7 @@ class Basicrobot ( name: String, scope: CoroutineScope, isconfined: Boolean=fals
 				}	 
 				state("work") { //this:State
 					action { //it:State
-						CommUtils.outblack("robot | working...")
+						CommUtils.outblack("basicrobot | working...")
 						//genTimer( actor, state )
 					}
 					//After Lenzi Aug2002
@@ -56,7 +59,8 @@ class Basicrobot ( name: String, scope: CoroutineScope, isconfined: Boolean=fals
 				}	 
 				state("doEngage") { //this:State
 					action { //it:State
-						CommUtils.outblack("robot | engaging")
+						CommUtils.outblack("basicrobot | engaging")
+						 robotclient.engage()  
 						answer("engage", "engagedone", "engagedone(1)"   )  
 						//genTimer( actor, state )
 					}
@@ -67,7 +71,8 @@ class Basicrobot ( name: String, scope: CoroutineScope, isconfined: Boolean=fals
 				}	 
 				state("doDisengage") { //this:State
 					action { //it:State
-						CommUtils.outblack("robot | disengaging")
+						 robotclient.disengage()  
+						CommUtils.outblack("basicrobot | disengaging")
 						//genTimer( actor, state )
 					}
 					//After Lenzi Aug2002
@@ -77,7 +82,11 @@ class Basicrobot ( name: String, scope: CoroutineScope, isconfined: Boolean=fals
 				}	 
 				state("doMoveRobot") { //this:State
 					action { //it:State
-						CommUtils.outblack("robot | moving")
+						if( checkMsgContent( Term.createTerm("moverobot(TARGETX,TARGETY)"), Term.createTerm("moverobot(TARGETX,TARGETY)"), 
+						                        currentMsg.msgContent()) ) { //set msgArgList
+								 robotclient.moveRobot(payloadArg(0).toInt(), payloadArg(1).toInt())  
+						}
+						CommUtils.outblack("basicrobot | moving")
 						answer("moverobot", "moverobotdone", "moverobotok(1)"   )  
 						//genTimer( actor, state )
 					}
@@ -88,7 +97,8 @@ class Basicrobot ( name: String, scope: CoroutineScope, isconfined: Boolean=fals
 				}	 
 				state("doSetDirection") { //this:State
 					action { //it:State
-						CommUtils.outblack("robot | setting direction")
+						CommUtils.outblack("basicrobot | setting direction")
+						CommUtils.outred("not yet supported")
 						//genTimer( actor, state )
 					}
 					//After Lenzi Aug2002
@@ -98,7 +108,7 @@ class Basicrobot ( name: String, scope: CoroutineScope, isconfined: Boolean=fals
 				}	 
 				state("giveEnvmap") { //this:State
 					action { //it:State
-						CommUtils.outblack("robot | envmap")
+						CommUtils.outblack("basicrobot | envmap")
 						answer("getenvmap", "envmap", "envmap(envmap_not_supported)"   )  
 						//genTimer( actor, state )
 					}
