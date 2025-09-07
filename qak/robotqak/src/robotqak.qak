@@ -28,6 +28,39 @@ Context ctxbasicrobot ip  [host="localhost" port=8020]
 
 QActor basicrobot context ctxbasicrobot {
 	State s0 initial{
-		println("robot starting")
+		println("robot | starting...")
 	}
+	Goto work
+	
+	State work{
+		println("robot | working...")
+	}Transition t0
+	whenRequest engage -> doEngage
+	whenMsg disengage -> doDisengage
+	whenRequest moverobot -> doMoveRobot
+	whenMsg setdirection -> doSetDirection
+	whenRequest getenvmap -> giveEnvmap
+	
+	State doEngage{
+		println("robot | engaging")
+		replyTo engage with engagedone : engagedone(1)
+	}Goto work
+	
+	State doDisengage{
+		println("robot | disengaging")
+	}Goto work
+	
+	State doMoveRobot{
+		println("robot | moving")
+		replyTo moverobot with moverobotdone : moverobotok(1)
+	}Goto work
+	
+	State doSetDirection{
+		println("robot | setting direction")
+	}Goto work
+	
+	State giveEnvmap{
+		println("robot | envmap")
+		replyTo getenvmap with envmap : envmap(envmap_not_supported)
+	}Goto work
 }

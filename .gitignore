@@ -32,3 +32,4 @@ qak/robotqak/.gradle/buildOutputCleanup/cache.properties
 qak/robotqak/.gradle/configuration-cache/gc.properties
 qak/robotqak/.gradle/file-system.probe
 qak/robotqak/.gradle/vcs-1/gc.properties
+*.salive

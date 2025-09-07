@@ -9,11 +9,12 @@ import math
 import numpy as np
 import time
 import logging
-from typing import Optional, Tuple, Dict
+from typing import Any, Optional, Tuple, Dict
 from datetime import datetime
 
 # Import dei moduli del nostro sistema
 from robot.ui.displaymanager import DisplayManager
+from robot.comm.robot_websocketserver import RobotWebSocketServer
 from robot.vision.coords import Coordinates
 from robot.vision.visionsystem import VisionSystem
 from robot.control.robot_controller import RobotController, RobotState, TargetState
@@ -40,10 +41,22 @@ class IntegratedRobotSystem:
             system_ref=self  # Passa riferimento al sistema
         )
         
+        # WebSocket per controllo remoto
+        self.websocket = RobotWebSocketServer()
+        self.websocket.set_message_handler(self._handle_remote_message)
+
         # Stati
         self.running = False
         self.manual_control = False
         self.target_set = False
+        
+        # Stato controllo remoto
+        self.remote_control_enabled = False
+        self.remote_movement_active = False  # NUOVO: traccia movimenti remoti attivi
+        self.remote_target_id = None  # NUOVO: ID del movimento per tracking
+        
+        # Debounce per evitare spam di stop
+        self.last_stop_call = 0  # NUOVO: timestamp ultimo stop
         
         # Modalità di navigazione
         self.pathfinding_mode = False
@@ -77,9 +90,145 @@ class IntegratedRobotSystem:
         # Inizializza controller
         if not await self.controller.initialize():
             return False
+        
+        # NUOVO: Inizializza WebSocket server
+        try:
+            await self.websocket.start()
+            self.logger.info("🌐 WebSocket server avviato su localhost:8765")
+        except Exception as e:
+            self.logger.error(f"Errore avvio WebSocket server: {e}")
+            return False
             
         self.logger.info("Sistema integrato inizializzato con successo")
         return True
+    
+    async def _handle_remote_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        """Gestisce messaggi remoti"""
+        try:
+            command = message.get("command")
+            
+            if command == "engage":
+                return await self._handle_engage()
+            elif command == "disengage":
+                return await self._handle_disengage()
+            elif command == "moverobot":
+                x = message.get("x")
+                y = message.get("y")
+                if x is None or y is None:
+                    return {"status": "error", "message": "x e y sono richiesti"}
+                return await self._handle_move_robot(x, y)
+            else:
+                return {"status": "error", "message": f"Comando sconosciuto: {command}"}
+                
+        except Exception as e:
+            self.logger.error(f"Errore gestione messaggio remoto: {e}")
+            return {"status": "error", "message": str(e)}
+    
+    async def _handle_engage(self) -> Dict[str, Any]:
+        """Attiva controllo remoto"""
+        try:
+            if not self.controller.control_enabled:
+                await self.controller.start_continuous_control()
+                self.pathfinding_mode = True  # Abilita pathfinding per controllo remoto
+                
+                # MODIFICATO: Avvia loop di controllo solo se non esiste già un task attivo
+                # Il main loop potrebbe già avere avviato control_task, quindi non creiamo duplicati
+                self.logger.info("🔄 Controllo automatico sarà gestito dal main loop")
+
+            self.remote_control_enabled = True
+            self.logger.info("🔗 Controllo remoto ATTIVATO")
+            
+            return {
+                "status": "success",
+                "message": "Controllo remoto attivato",
+                "remote_control": True
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    async def _handle_disengage(self) -> Dict[str, Any]:
+        """Disattiva controllo remoto"""
+        try:
+            await self.controller.stop()
+            self.remote_control_enabled = False
+            self.remote_movement_active = False  # NUOVO: reset movimento remoto
+            self.remote_target_id = None  # NUOVO: reset ID movimento
+            self.mouse_target = None
+            self.last_target_sent = None
+            
+            # MODIFICATO: Non cancelliamo task che non abbiamo creato noi
+            # Il main loop gestirà il proprio control_task
+            self.logger.info("🔄 Controllo automatico fermato dal controller")
+            
+            self.logger.info("🔗 Controllo remoto DISATTIVATO")
+            
+            return {
+                "status": "success", 
+                "message": "Controllo remoto disattivato",
+                "remote_control": False
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    async def _handle_move_robot(self, x: float, y: float) -> Dict[str, Any]:
+        """Muove robot verso coordinate specificate"""
+        try:
+            if not self.remote_control_enabled:
+                return {"status": "error", "message": "Controllo remoto non attivo"}
+            
+            # Genera ID univoco per il movimento
+            import time
+            movement_id = f"move_{int(time.time() * 1000)}"
+            
+            # Imposta target e inizia tracking movimento remoto
+            self.mouse_target = (x, y)
+            self.last_target_sent = None  # Forza aggiornamento
+            self.remote_movement_active = True  # NUOVO: inizia tracking
+            self.remote_target_id = movement_id  # NUOVO: salva ID movimento
+
+            # se controllo non è abilitato, abilitalo
+            if not self.controller.control_enabled:
+                await self.controller.start_continuous_control()
+                self.pathfinding_mode = True  # Abilita pathfinding per controllo remoto
+                self.logger.info("🔄 Controllo remoto attivato")
+            
+            self.logger.info(f"🎯 Target remoto impostato: ({x:.1f}, {y:.1f}) [ID: {movement_id}]")
+            
+            return {
+                "status": "success",
+                "message": f"Target impostato a ({x}, {y})",
+                "target": {"x": x, "y": y},
+                "movement_id": movement_id  # NUOVO: restituisce ID movimento
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    async def _send_movement_done_notification(self):
+        """Invia notifica di movimento completato ai client remoti"""
+        try:
+            if self.remote_target_id and self.websocket.clients:
+                notification = {
+                    "command": "moverobotdone",
+                    "movement_id": self.remote_target_id,
+                    "status": "success",
+                    "message": "Movimento completato con successo"
+                }
+                
+                await self.websocket.broadcast(notification)
+                self.logger.info(f"✅ Notifica movimento completato inviata [ID: {self.remote_target_id}]")
+                
+                # Reset tracking movimento remoto
+                self.remote_movement_active = False
+                self.remote_target_id = None
+                
+                # NUOVO: Reset target anche qui per evitare loop
+                if not self.follow_mouse_mode:
+                    self.mouse_target = None
+                    self.last_target_sent = None
+                
+        except Exception as e:
+            self.logger.error(f"Errore invio notifica movimento completato: {e}")
+    
     
     async def main_loop(self):
         """Loop principale del sistema"""
@@ -127,6 +276,12 @@ class IntegratedRobotSystem:
                     )
                 else:
                     self.controller.update_robot_state(0, 0, 0, tracking_valid=False)
+                
+                # NUOVO: Auto-avvia controllo se necessario
+                if (self.controller.control_enabled and 
+                    (not control_task or control_task.done())):
+                    control_task = asyncio.create_task(self._control_loop())
+                    self.logger.debug("🔄 Auto-avvio loop di controllo")
                 
                 # NUOVO: Gestione target con pathfinding
                 current_target = None
@@ -265,6 +420,8 @@ class IntegratedRobotSystem:
                 control_task.cancel()
             await self.controller.stop()
             await self.controller.communication.disconnect()
+            # NUOVO: Ferma WebSocket server
+            await self.websocket.stop()
             self.vision.release()
             cv2.destroyAllWindows()
             self.logger.info("Sistema arrestato")
@@ -293,9 +450,12 @@ class IntegratedRobotSystem:
             
         if not target_pos:
             # NESSUN TARGET: Se esiste un percorso valido, continua a seguirlo
-            # altrimenti ferma il robot
+            # altrimenti ferma il robot (con debounce per evitare spam)
             if not self.pathfinding.has_valid_path():
-                await self.controller.stop()
+                current_time = time.time()
+                if current_time - self.last_stop_call > 1.0:  # Debounce di 1 secondo
+                    await self.controller.stop()
+                    self.last_stop_call = current_time
                 return
         else:
             # AGGIORNA PATHFINDING: Prova a calcolare nuovo percorso
@@ -336,14 +496,21 @@ class IntegratedRobotSystem:
                         self.logger.info("🎉 Percorso pathfinding completato!")
                         await self.controller.stop()
                         
-                        # Reset target se non in follow mode
-                        if not self.follow_mouse_mode:
-                            self.mouse_target = None
-                            self.last_target_sent = None
+                        # NUOVO: Invia notifica movimento completato se era remoto
+                        if self.remote_movement_active and self.remote_target_id:
+                            await self._send_movement_done_notification()
+                        else:
+                            # Reset target solo se non era un movimento remoto
+                            if not self.follow_mouse_mode:
+                                self.mouse_target = None
+                                self.last_target_sent = None
         else:
-            # NESSUN PERCORSO VALIDO: Ferma il robot
-            self.logger.warning("⚠️ Nessun percorso valido, robot fermo")
-            await self.controller.stop()
+            # NESSUN PERCORSO VALIDO: Ferma il robot (con debounce)
+            current_time = time.time()
+            if current_time - self.last_stop_call > 1.0:  # Debounce di 1 secondo
+                self.logger.warning("⚠️ Nessun percorso valido, robot fermo")
+                await self.controller.stop()
+                self.last_stop_call = current_time
     
     async def _control_loop(self):
         """Loop di controllo asincrono"""

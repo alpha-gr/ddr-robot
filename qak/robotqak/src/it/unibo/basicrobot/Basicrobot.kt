@@ -32,12 +32,80 @@ class Basicrobot ( name: String, scope: CoroutineScope, isconfined: Boolean=fals
 		return { //this:ActionBasciFsm
 				state("s0") { //this:State
 					action { //it:State
-						CommUtils.outblack("robot starting")
+						CommUtils.outblack("robot | starting...")
 						//genTimer( actor, state )
 					}
 					//After Lenzi Aug2002
 					sysaction { //it:State
 					}	 	 
+					 transition( edgeName="goto",targetState="work", cond=doswitch() )
+				}	 
+				state("work") { //this:State
+					action { //it:State
+						CommUtils.outblack("robot | working...")
+						//genTimer( actor, state )
+					}
+					//After Lenzi Aug2002
+					sysaction { //it:State
+					}	 	 
+					 transition(edgeName="t00",targetState="doEngage",cond=whenRequest("engage"))
+					transition(edgeName="t01",targetState="doDisengage",cond=whenDispatch("disengage"))
+					transition(edgeName="t02",targetState="doMoveRobot",cond=whenRequest("moverobot"))
+					transition(edgeName="t03",targetState="doSetDirection",cond=whenDispatch("setdirection"))
+					transition(edgeName="t04",targetState="giveEnvmap",cond=whenRequest("getenvmap"))
+				}	 
+				state("doEngage") { //this:State
+					action { //it:State
+						CommUtils.outblack("robot | engaging")
+						answer("engage", "engagedone", "engagedone(1)"   )  
+						//genTimer( actor, state )
+					}
+					//After Lenzi Aug2002
+					sysaction { //it:State
+					}	 	 
+					 transition( edgeName="goto",targetState="work", cond=doswitch() )
+				}	 
+				state("doDisengage") { //this:State
+					action { //it:State
+						CommUtils.outblack("robot | disengaging")
+						//genTimer( actor, state )
+					}
+					//After Lenzi Aug2002
+					sysaction { //it:State
+					}	 	 
+					 transition( edgeName="goto",targetState="work", cond=doswitch() )
+				}	 
+				state("doMoveRobot") { //this:State
+					action { //it:State
+						CommUtils.outblack("robot | moving")
+						answer("moverobot", "moverobotdone", "moverobotok(1)"   )  
+						//genTimer( actor, state )
+					}
+					//After Lenzi Aug2002
+					sysaction { //it:State
+					}	 	 
+					 transition( edgeName="goto",targetState="work", cond=doswitch() )
+				}	 
+				state("doSetDirection") { //this:State
+					action { //it:State
+						CommUtils.outblack("robot | setting direction")
+						//genTimer( actor, state )
+					}
+					//After Lenzi Aug2002
+					sysaction { //it:State
+					}	 	 
+					 transition( edgeName="goto",targetState="work", cond=doswitch() )
+				}	 
+				state("giveEnvmap") { //this:State
+					action { //it:State
+						CommUtils.outblack("robot | envmap")
+						answer("getenvmap", "envmap", "envmap(envmap_not_supported)"   )  
+						//genTimer( actor, state )
+					}
+					//After Lenzi Aug2002
+					sysaction { //it:State
+					}	 	 
+					 transition( edgeName="goto",targetState="work", cond=doswitch() )
 				}	 
 			}
 		}
