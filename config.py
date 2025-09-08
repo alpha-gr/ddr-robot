@@ -62,7 +62,7 @@ class VisionConfig:
     SLOTS_MARKER_IDS = list(SLOTS.keys())
     ROBOT_MARKER_ID = 0
 
-    TARGET_OFFSET_DISTANCE = 60
+    TARGET_OFFSET_DISTANCE = 100
     
     # Tracking settings
     MIN_MARKER_AREA = 100     # Pixel minimi per marker valido
@@ -75,19 +75,21 @@ class ControlConfig:
     # I: if you haven’t been where you want to be for a long time, get there faster.
     # D: if you’re getting close to where you want to be, slow down.
 
-    PID_FORWARD_KP = 0.15
-    PID_FORWARD_KI = 0.01
-    PID_FORWARD_KD = 0.02
+    # Forward
+    PID_FORWARD_KP = 1   # Risposta rapida alle distanze
+    PID_FORWARD_KI = 0.0  # Elimina errori di posizionamento
+    PID_FORWARD_KD = 0.0   # Smorzamento overshoot
 
-    PID_LATERAL_KP = 0.15
-    PID_LATERAL_KI = 0.02
-    PID_LATERAL_KD = 0.01
+    # Lateral  
+    PID_LATERAL_KP = 0.4   # Correzione angolare immediata
+    PID_LATERAL_KI = 0.005  # Correzione derive/bias
+    PID_LATERAL_KD = 0.4  # Stabilità rotazioni
 
     # Limiti controllo
-    MAX_SPEED = 0.4 
+    MAX_SPEED = 1 
     
     # Controllo vettoriale
-    VECTOR_DISTANCE_SCALE = 30.0  # Distanza arena per velocità massima (era 20.0 - più delicato)
+    VECTOR_DISTANCE_SCALE = 10.0
     
     # Tolleranze
     POSITION_TOLERANCE = 3.0  # Aumentato da 2.0 - meno preciso ma più stabile
@@ -101,6 +103,34 @@ class ControlConfig:
     MANUAL_LINEAR_SPEED = 0.3   # Velocità lineare per controlli manuali
     MANUAL_ANGULAR_SPEED = 0.4  # Velocità angolare per controlli manuali
     
+
+class PathfindingConfig:
+    """Configurazione per il pathfinding"""
+    # Griglia di pathfinding
+    GRID_RESOLUTION = 1     # Risoluzione griglia (unità arena per cella) 
+    GRID_SIZE = int(100 / GRID_RESOLUTION)
+    
+    # Ostacoli - AUMENTATI per test
+    OBSTACLE_INFLATION_RADIUS = 20  # Raggio inflazione ostacoli (unità arena)
+    ROBOT_SAFETY_RADIUS = 4         # Raggio sicurezza robot (unità arena)
+    
+    # Algoritmo A*
+    DIAGONAL_COST = 1.41421356       # sqrt(2) per movimenti diagonali
+    STRAIGHT_COST = 1.0              # Costo movimenti cardinali
+    
+    # Ottimizzazione percorso - CONFIGURATE per più punti
+    ENABLE_PATH_SMOOTHING = False
+    SMOOTHING_ITERATIONS = 1         
+    MIN_WAYPOINT_DISTANCE = 5.0      
+    MAX_WAYPOINT_DISTANCE = 10.0     
+    
+    # Vincoli di navigazione
+    MAX_PATH_LENGTH = 10000          
+    BOUNDARY_MARGIN = ControlConfig.BOUNDARY_MARGIN 
+
+    # Ricalcolo percorso
+    PATHFINDING_RECALC_DISTANCE = 3.0 # Distanza minima cambiamento posizione robot per ricalcolo
+
 
 class CommunicationConfig:
     """Configurazione comunicazione"""

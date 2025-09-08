@@ -18,7 +18,7 @@ from robot.comm.robot_websocketserver import RobotWebSocketServer
 from robot.vision.coords import Coordinates
 from robot.vision.visionsystem import VisionSystem
 from robot.control.robot_controller import RobotController, RobotState, TargetState
-from config import VisionConfig, SystemConfig, UIConfig, ControlConfig, MapConfig
+from config import VisionConfig, SystemConfig, UIConfig, ControlConfig, MapConfig, PathfindingConfig
 from robot.path.pathfinding import PathfindingSystem, PathPoint
 
 # Setup logging
@@ -486,7 +486,6 @@ class IntegratedRobotSystem:
             
         if not target_pos:
             # NESSUN TARGET: Se esiste un percorso valido, continua a seguirlo
-            # altrimenti ferma il robot (con debounce per evitare spam)
             if not self.pathfinding.has_valid_path():
                 current_time = time.time()
                 if current_time - self.last_stop_call > 1.0:  # Debounce di 1 secondo
@@ -494,26 +493,73 @@ class IntegratedRobotSystem:
                     self.last_stop_call = current_time
                 return
         else:
-            # AGGIORNA PATHFINDING: Prova a calcolare nuovo percorso
-            # MA mantieni quello vecchio se il calcolo fallisce
-            path_updated = self.pathfinding.update_path(
-                vision_data["robot_x"], vision_data["robot_y"],
-                target_pos[0], target_pos[1],
-                obstacles_arena
-            )
+            # AGGIORNA PATHFINDING SOLO SE NECESSARIO
+            # Non ricalcolare il percorso ad ogni frame per evitare reset PID continui
+            needs_recalc = False
             
-            if path_updated:
-                self.logger.info(f"🗺️ Pathfinding: Nuovo percorso calcolato")
+            # Verifica se il target è cambiato significativamente
+            if not hasattr(self, '_last_pathfinding_target'):
+                needs_recalc = True
+                self._last_pathfinding_target = target_pos
             else:
-                self.logger.debug(f"🗺️ Pathfinding: Usando percorso esistente")
+                dist_change = math.sqrt(
+                    (target_pos[0] - self._last_pathfinding_target[0])**2 + 
+                    (target_pos[1] - self._last_pathfinding_target[1])**2
+                )
+                if dist_change > 5.0:  # Solo se target cambia di più di 5 unità
+                    needs_recalc = True
+                    self._last_pathfinding_target = target_pos
+
+            # Verifica se il robot si è spostato significativamente
+            robot_pos = (vision_data["robot_x"], vision_data["robot_y"])
+            if not hasattr(self, '_last_pathfinding_robot_pos'):
+                needs_recalc = True
+                self._last_pathfinding_robot_pos = robot_pos
+            else:
+                dist_robot_change = math.sqrt(
+                    (robot_pos[0] - self._last_pathfinding_robot_pos[0])**2 + 
+                    (robot_pos[1] - self._last_pathfinding_robot_pos[1])**2
+                )
+                if dist_robot_change > PathfindingConfig.PATHFINDING_RECALC_DISTANCE:
+                    needs_recalc = True
+                    self._last_pathfinding_robot_pos = robot_pos
+            
+            # Verifica se gli ostacoli sono cambiati
+            if not hasattr(self, '_last_obstacles_hash'):
+                self._last_obstacles_hash = str(sorted(obstacles_arena.keys()))
+                needs_recalc = True
+            else:
+                current_obstacles_hash = str(sorted(obstacles_arena.keys()))
+                if current_obstacles_hash != self._last_obstacles_hash:
+                    self._last_obstacles_hash = current_obstacles_hash
+                    needs_recalc = True
+                    self.logger.info("🚧 Ostacoli cambiati, ricalcolo percorso")
+            
+            # Ricalcola percorso SOLO se necessario
+            if needs_recalc:
+                path_updated = self.pathfinding.update_path(
+                    vision_data["robot_x"], vision_data["robot_y"],
+                    target_pos[0], target_pos[1],
+                    obstacles_arena
+                )
+                
+                if path_updated:
+                    self.logger.info(f"🗺️ Pathfinding: Nuovo percorso calcolato (target o ostacoli cambiati)")
+                    # RESET TARGET SENT per forzare aggiornamento del prossimo waypoint
+                    self.last_target_sent = None
+                else:
+                    self.logger.debug(f"🗺️ Pathfinding: Mantengo percorso esistente")
         
-        # USA IL PERCORSO ESISTENTE (nuovo o vecchio)
+        # USA IL PERCORSO ESISTENTE
         current_waypoint = self.pathfinding.get_current_waypoint()
         if current_waypoint:
-            # Imposta waypoint come target del controller SOLO se diverso
+            # MODIFICA CHIAVE: Imposta waypoint come target SOLO se veramente diverso
+            # Usa tolleranza più piccola per evitare oscillazioni ma abbastanza grande per evitare reset continui
+            waypoint_tolerance = 2.0  # Tolleranza per cambi waypoint
+            
             if (not self.last_target_sent or 
-                abs(current_waypoint.x - self.last_target_sent[0]) > 1.0 or 
-                abs(current_waypoint.y - self.last_target_sent[1]) > 1.0):
+                abs(current_waypoint.x - self.last_target_sent[0]) > waypoint_tolerance or 
+                abs(current_waypoint.y - self.last_target_sent[1]) > waypoint_tolerance):
                 
                 self.controller.set_target_position(current_waypoint.x, current_waypoint.y)
                 self.last_target_sent = (current_waypoint.x, current_waypoint.y)
@@ -525,14 +571,18 @@ class IntegratedRobotSystem:
                     vision_data["robot_x"], vision_data["robot_y"]
                 )
                 
-                if not waypoint_advanced:
+                if waypoint_advanced:
+                    # IMPORTANTE: Non resettare last_target_sent qui
+                    # Lascia che il prossimo ciclo gestisca il nuovo waypoint
+                    self.logger.debug("➡️ Avanzato al prossimo waypoint")
+                else:
                     # Percorso completato!
                     path_info = self.pathfinding.get_path_info()
                     if path_info["is_complete"]:
                         self.logger.info("🎉 Percorso pathfinding completato!")
                         await self.controller.stop()
                         
-                        # NUOVO: Invia notifica movimento completato se era remoto
+                        # Invia notifica movimento completato se era remoto
                         if self.remote_movement_active and self.remote_target_id:
                             await self._send_movement_done_notification()
                         else:
@@ -540,6 +590,9 @@ class IntegratedRobotSystem:
                             if not self.follow_mouse_mode:
                                 self.mouse_target = None
                                 self.last_target_sent = None
+                                # Reset anche variabili pathfinding
+                                if hasattr(self, '_last_pathfinding_target'):
+                                    del self._last_pathfinding_target
         else:
             # NESSUN PERCORSO VALIDO: Ferma il robot (con debounce)
             current_time = time.time()

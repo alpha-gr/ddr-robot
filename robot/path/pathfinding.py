@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 import logging
 
-from config import ControlConfig, VisionConfig
+from config import ControlConfig, PathfindingConfig
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -39,30 +39,6 @@ class PathPoint:
     
     def __hash__(self):
         return hash((round(self.x, 1), round(self.y, 1)))
-
-class PathfindingConfig:
-    """Configurazione per il pathfinding"""
-    # Griglia di pathfinding
-    GRID_RESOLUTION = 1     # Risoluzione griglia (unità arena per cella) 
-    GRID_SIZE = int(100 / GRID_RESOLUTION)  # 50x50 grid per arena 100x100
-    
-    # Ostacoli - AUMENTATI per test
-    OBSTACLE_INFLATION_RADIUS = 12  # Raggio inflazione ostacoli (unità arena)
-    ROBOT_SAFETY_RADIUS = 4         # Raggio sicurezza robot (unità arena)
-    
-    # Algoritmo A*
-    DIAGONAL_COST = 1.41421356       # sqrt(2) per movimenti diagonali
-    STRAIGHT_COST = 1.0              # Costo movimenti cardinali
-    
-    # Ottimizzazione percorso - CONFIGURATE per più punti
-    ENABLE_PATH_SMOOTHING = False
-    SMOOTHING_ITERATIONS = 1         
-    MIN_WAYPOINT_DISTANCE = 3.0      
-    MAX_WAYPOINT_DISTANCE = 8.0     
-    
-    # Vincoli di navigazione
-    MAX_PATH_LENGTH = 10000          
-    BOUNDARY_MARGIN = ControlConfig.BOUNDARY_MARGIN 
 
 class GridMap:
     """Griglia per pathfinding con gestione ostacoli"""

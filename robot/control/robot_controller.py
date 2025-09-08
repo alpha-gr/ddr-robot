@@ -176,7 +176,7 @@ class RobotController:
     
     def calculate_control_output(self) -> Tuple[float, float]:
         """
-        Calcola output di controllo
+        Calcola output di controllo usando PID
         Output: x,y come coordinate JOYSTICK per robot
         """
         if self.robot_state.tracking_lost:
@@ -191,81 +191,75 @@ class RobotController:
         if distance < self.target_state.tolerance:
             return 0.0, 0.0
         
-        # VETTORE VELOCITÀ: intensità e direzione
-        # Intensità: proporzionale alla distanza (con saturazione)
-        max_intensity = ControlConfig.MAX_SPEED
-        intensity = min(distance / ControlConfig.VECTOR_DISTANCE_SCALE, max_intensity)
+        # Calcola delta tempo per PID
+        current_time = time.time()
+        dt = current_time - self.last_control_time if self.last_control_time > 0 else 1.0/SystemConfig.CONTROL_LOOP_RATE
+        self.last_control_time = current_time
         
-        # Direzione: angolo verso target
-        target_angle_rad = math.atan2(error_y, error_x)
+        # === CONTROLLO PID ===
         
-        # Componenti vettore velocità nel sistema mondo
-        velocity_world_x = intensity * math.cos(target_angle_rad)
-        velocity_world_y = intensity * math.sin(target_angle_rad)
+        # 1. PID FORWARD: controlla intensità movimento (errore di distanza)
+        distance_error = distance
+        forward_output = self.pid_forward.update(distance_error, dt)
         
-        # Trasforma dal sistema mondo al sistema robot
-        robot_angle_rad = math.radians(self.robot_state.theta)
+        # 2. PID LATERAL: controlla orientamento verso target
+        # Calcola angolo desiderato verso target (in gradi)
+        target_angle_deg = math.degrees(math.atan2(error_y, error_x))
         
-        # Rotazione inversa: da coordinate mondo a coordinate robot
-        velocity_robot_x = (velocity_world_x * math.cos(robot_angle_rad) + 
-                           velocity_world_y * math.sin(robot_angle_rad))
-        velocity_robot_y = (-velocity_world_x * math.sin(robot_angle_rad) + 
-                           velocity_world_y * math.cos(robot_angle_rad))
+        # Errore angolare (normalizzato a [-180, +180])
+        angle_error = target_angle_deg - self.robot_state.theta
+        while angle_error > 180: 
+            angle_error -= 360
+        while angle_error < -180: 
+            angle_error += 360
         
-        # Applica limiti
-        joystick_x = max(-max_intensity, min(max_intensity, velocity_robot_x))
-        joystick_y = max(-ControlConfig.MAX_SPEED, 
-                          min(ControlConfig.MAX_SPEED, velocity_robot_y))
+        lateral_output = self.pid_lateral.update(angle_error, dt)
         
-        # SALVA INFORMAZIONI VETTORE per visualizzazione
-        self.last_vector_intensity = intensity
-        self.last_vector_angle = math.atan2(velocity_robot_y, velocity_robot_x)  # Angolo nel sistema robot
+        # === CONVERSIONE A COORDINATE JOYSTICK ===
+        
+        # Forward: movimento in avanti/indietro (joystick Y)
+        joystick_y = forward_output
+        
+        # Lateral: rotazione/movimento laterale (joystick X)
+        # Per un robot differenziale, l'errore angolare si traduce in rotazione
+        joystick_x = lateral_output
+        
+        # Applica limiti di saturazione
+        max_speed = ControlConfig.MAX_SPEED
+        joystick_x = max(-max_speed, min(max_speed, joystick_x))
+        joystick_y = max(-max_speed, min(max_speed, joystick_y))
+        
+        # Saturazione globale: se la somma supera il limite, scala proporzionalmente
+        max_combined = max(abs(joystick_x), abs(joystick_y))
+        if max_combined > max_speed:
+            scale_factor = max_speed / max_combined
+            joystick_x *= scale_factor
+            joystick_y *= scale_factor
+        
+        # SALVA INFORMAZIONI per visualizzazione
+        self.last_vector_intensity = abs(forward_output)
+        self.last_vector_angle = math.radians(angle_error)  # Errore angolare in radianti
         self.last_target_distance = distance
 
-        #print(f"Joystick Output: x={joystick_x:.2f}, y={joystick_y:.2f}")
-        return joystick_y, joystick_x  # Nota: invertito per joystick (y avanti, x laterale)
+        return joystick_x, joystick_y  # X=laterale, Y=avanti
     
     async def control_loop_step(self):
         """Singolo step del loop di controllo"""
         if not self.control_enabled or not self.communication.is_connected():
             return
             
-        # Calcola controllo
+        # Calcola controllo usando PID
         joystick_x, joystick_y = self.calculate_control_output()
 
-        # Salva errori per debug
-        error_x = self.target_state.x - self.robot_state.x
-        error_y = self.target_state.y - self.robot_state.y
-        distance_error = math.sqrt(error_x**2 + error_y**2)
-        target_angle = math.degrees(math.atan2(error_y, error_x))
-        angle_error = target_angle - self.robot_state.theta
-        while angle_error > 180: angle_error -= 360
-        while angle_error < -180: angle_error += 360
-
-        # Saturazione
-        max_motor = max(abs(joystick_x), abs(joystick_y))
-        if max_motor > 1.0:
-            scale = 1.0 / max_motor
-            joystick_x *= scale
-            joystick_y *= scale
-
-        # Applica limiti di velocità
-        joystick_x = max(-ControlConfig.MAX_SPEED, min(ControlConfig.MAX_SPEED, joystick_x))
-        joystick_y = max(-ControlConfig.MAX_SPEED, min(ControlConfig.MAX_SPEED, joystick_y))
-
-        # Invia comando
+        # Invia comando al robot
         success = await self.communication.send_movement_command(joystick_x, joystick_y)
 
-        # Salva errori e variabili per debug
-        error_x = self.target_state.x - self.robot_state.x
-        error_y = self.target_state.y - self.robot_state.y
-        distance = math.sqrt(error_x**2 + error_y**2)
-        
-        # Debug dettagliato ogni 10 comandi
+        # Debug ogni 10 comandi
         if self.control_enabled and hasattr(self, '_debug_counter'):
             self._debug_counter = getattr(self, '_debug_counter', 0) + 1
             if self._debug_counter % 10 == 0:
-                self.logger.info(f"🎮 Vector Control: dist={distance:.2f}, "
+                distance = self.last_target_distance
+                self.logger.info(f"🎮 PID Control: dist={distance:.2f}, "
                                  f"joystick_x={joystick_x:.2f}, joystick_y={joystick_y:.2f}")
 
         if not success:
