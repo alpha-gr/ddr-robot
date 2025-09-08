@@ -80,8 +80,8 @@ class Coordinates:
             arena_y = float(arena_point[0][0][1])
             
             # Clamp ai limiti dell'arena
-            arena_x = max(0, min(100, arena_x))
-            arena_y = max(0, min(100, arena_y))
+            # arena_x = max(0, min(100, arena_x))
+            # arena_y = max(0, min(100, arena_y))
             
             return arena_x, arena_y
             
