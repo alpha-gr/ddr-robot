@@ -40,6 +40,196 @@ class PathPoint:
     def __hash__(self):
         return hash((round(self.x, 1), round(self.y, 1)))
 
+class DynamicWaypoint:
+    """
+    Waypoint dinamico che si muove continuamente lungo il percorso,
+    restando sempre a una distanza fissa davanti al robot
+    """
+    
+    def __init__(self, radius: float = None):
+        self.radius = radius or PathfindingConfig.DYNAMIC_WAYPOINT_RADIUS
+        self.current_position = None  # PathPoint corrente del waypoint
+        self.path_progress = 0.0      # Progresso lungo il percorso (0.0 - 1.0)
+        self.path = []                # Percorso completo
+        
+        self.logger = logging.getLogger(__name__ + ".DynamicWaypoint")
+    
+    def set_path(self, path: List[PathPoint]):
+        """Imposta un nuovo percorso per il waypoint dinamico"""
+        self.path = path.copy()
+        self.path_progress = 0.0
+        self.current_position = None
+        self.logger.debug(f"Nuovo percorso impostato con {len(path)} punti")
+    
+    def update_position(self, robot_x: float, robot_y: float) -> Optional[PathPoint]:
+        """
+        Aggiorna la posizione del waypoint dinamico basandosi sulla posizione del robot
+        
+        Returns:
+            PathPoint del waypoint corrente, None se non c'è percorso valido
+        """
+        if not self.path or len(self.path) < 2:
+            return None
+        
+        # Trova il punto del percorso più vicino al robot
+        closest_progress = self._find_closest_point_on_path(robot_x, robot_y)
+        
+        # Calcola la posizione target del waypoint (avanti di radius dal robot)
+        target_progress = self._calculate_target_progress(closest_progress, robot_x, robot_y)
+        
+        # Smooth del movimento del waypoint per evitare scatti
+        if self.path_progress == 0.0:
+            # Prima volta: posiziona direttamente
+            self.path_progress = target_progress
+        else:
+            # Smooth movement
+            smoothing = PathfindingConfig.WAYPOINT_SMOOTHING
+            self.path_progress = (smoothing * self.path_progress + 
+                                (1.0 - smoothing) * target_progress)
+        
+        # Clamp progress tra 0 e 1
+        self.path_progress = max(0.0, min(1.0, self.path_progress))
+        
+        # Calcola posizione interpolata lungo il percorso
+        self.current_position = self._interpolate_position_on_path(self.path_progress)
+        
+        self.logger.debug(f"Waypoint aggiornato: progress={self.path_progress:.3f}, "
+                         f"pos=({self.current_position.x:.1f}, {self.current_position.y:.1f})")
+        
+        return self.current_position
+    
+    def _find_closest_point_on_path(self, robot_x: float, robot_y: float) -> float:
+        """Trova il punto del percorso più vicino al robot e ritorna il progress (0-1)"""
+        min_distance = float('inf')
+        closest_progress = 0.0
+        
+        # Controlla ogni segmento del percorso
+        for i in range(len(self.path) - 1):
+            p1 = self.path[i]
+            p2 = self.path[i + 1]
+            
+            # Proiezione del robot sul segmento
+            t, distance = self._project_point_on_segment(robot_x, robot_y, p1, p2)
+            
+            if distance < min_distance:
+                min_distance = distance
+                # Converti posizione locale del segmento in progress globale
+                segment_progress = i / (len(self.path) - 1)
+                segment_length = 1.0 / (len(self.path) - 1)
+                closest_progress = segment_progress + t * segment_length
+        
+        return closest_progress
+    
+    def _project_point_on_segment(self, px: float, py: float, 
+                                 p1: PathPoint, p2: PathPoint) -> Tuple[float, float]:
+        """
+        Proietta un punto su un segmento e ritorna (t, distance)
+        t = 0 per p1, t = 1 per p2
+        """
+        # Vettore segmento
+        dx = p2.x - p1.x
+        dy = p2.y - p1.y
+        segment_length_sq = dx * dx + dy * dy
+        
+        if segment_length_sq < 1e-6:  # Segmento degenere
+            distance = math.sqrt((px - p1.x)**2 + (py - p1.y)**2)
+            return 0.0, distance
+        
+        # Proiezione
+        t = max(0.0, min(1.0, ((px - p1.x) * dx + (py - p1.y) * dy) / segment_length_sq))
+        
+        # Punto proiettato
+        proj_x = p1.x + t * dx
+        proj_y = p1.y + t * dy
+        
+        # Distanza
+        distance = math.sqrt((px - proj_x)**2 + (py - proj_y)**2)
+        
+        return t, distance
+    
+    def _calculate_target_progress(self, current_progress: float, 
+                                  robot_x: float, robot_y: float) -> float:
+        """Calcola dove dovrebbe essere il waypoint (avanti di radius dal robot)"""
+        # Percorso totale
+        total_length = self._calculate_path_length()
+        if total_length < 1e-6:
+            return current_progress
+        
+        # Distanza target dal robot
+        target_distance_along_path = self.radius
+        
+        # Converti in incremento di progress
+        progress_increment = target_distance_along_path / total_length
+        
+        # Nuovo progress target
+        target_progress = current_progress + progress_increment
+        
+        return min(1.0, target_progress)  # Non superare la fine
+    
+    def _calculate_path_length(self) -> float:
+        """Calcola la lunghezza totale del percorso"""
+        if len(self.path) < 2:
+            return 0.0
+        
+        total_length = 0.0
+        for i in range(len(self.path) - 1):
+            p1 = self.path[i]
+            p2 = self.path[i + 1]
+            segment_length = math.sqrt((p2.x - p1.x)**2 + (p2.y - p1.y)**2)
+            total_length += segment_length
+        
+        return total_length
+    
+    def _interpolate_position_on_path(self, progress: float) -> PathPoint:
+        """Interpola una posizione lungo il percorso basata sul progress (0-1)"""
+        if not self.path:
+            return PathPoint(0, 0)
+        
+        if len(self.path) == 1:
+            return self.path[0]
+        
+        if progress <= 0.0:
+            return self.path[0]
+        
+        if progress >= 1.0:
+            return self.path[-1]
+        
+        # Trova il segmento corrispondente
+        segment_count = len(self.path) - 1
+        segment_progress = progress * segment_count
+        segment_index = int(segment_progress)
+        segment_t = segment_progress - segment_index
+        
+        # Clamp per sicurezza
+        segment_index = min(segment_index, segment_count - 1)
+        
+        # Interpola tra i due punti del segmento
+        p1 = self.path[segment_index]
+        p2 = self.path[segment_index + 1]
+        
+        interpolated_x = p1.x + segment_t * (p2.x - p1.x)
+        interpolated_y = p1.y + segment_t * (p2.y - p1.y)
+        
+        return PathPoint(interpolated_x, interpolated_y)
+    
+    def get_current_waypoint(self) -> Optional[PathPoint]:
+        """Ritorna la posizione corrente del waypoint"""
+        return self.current_position
+    
+    def is_path_complete(self) -> bool:
+        """Verifica se il waypoint ha raggiunto la fine del percorso"""
+        return self.path_progress >= 1.0
+    
+    def get_progress_info(self) -> Dict:
+        """Ritorna informazioni sul progresso del waypoint"""
+        return {
+            "progress": self.path_progress,
+            "progress_percent": self.path_progress * 100.0,
+            "has_path": len(self.path) > 0,
+            "is_complete": self.is_path_complete(),
+            "current_position": self.current_position
+        }
+
 class GridMap:
     """Griglia per pathfinding con gestione ostacoli"""
     
@@ -484,12 +674,12 @@ class AStarPathfinder:
         return True
 
 class PathfindingSystem:
-    """Sistema completo di pathfinding per il robot"""
+    """Sistema completo di pathfinding per il robot con waypoint dinamico"""
     
     def __init__(self):
         self.pathfinder = AStarPathfinder()
         self.current_path = []
-        self.current_waypoint_index = 0
+        self.dynamic_waypoint = DynamicWaypoint()
         
         # Cache per evitare ricalcoli
         self._last_obstacles = {}
@@ -534,7 +724,7 @@ class PathfindingSystem:
         if new_path:
             # NUOVO PERCORSO TROVATO
             self.current_path = new_path
-            self.current_waypoint_index = 0
+            self.dynamic_waypoint.set_path(new_path)  # Imposta il nuovo percorso nel waypoint dinamico
             
             # Aggiorna cache
             self._last_target = (target_x, target_y)
@@ -552,98 +742,125 @@ class PathfindingSystem:
                 self.logger.error("❌ Impossibile calcolare percorso e nessuno esistente")
                 return False
     
-    def get_current_waypoint(self) -> Optional[PathPoint]:
-        """Ritorna il waypoint corrente da raggiungere"""
-        if (self.current_waypoint_index < len(self.current_path)):
-            return self.current_path[self.current_waypoint_index]
-        return None
+    def get_current_waypoint(self, robot_x: float, robot_y: float) -> Optional[PathPoint]:
+        """
+        Ritorna il waypoint dinamico corrente basato sulla posizione del robot
+        
+        IMPORTANTE: Questo metodo ora richiede la posizione del robot per aggiornare
+        il waypoint dinamico continuamente!
+        """
+        if not self.has_valid_path():
+            return None
+        
+        # Aggiorna la posizione del waypoint dinamico
+        return self.dynamic_waypoint.update_position(robot_x, robot_y)
     
     def has_valid_path(self) -> bool:
         """Verifica se esiste un percorso valido"""
-        return len(self.current_path) > 0 and self.current_waypoint_index < len(self.current_path)
+        return len(self.current_path) > 0
     
-    def advance_waypoint(self, robot_x: float, robot_y: float, 
-                        tolerance: float = None) -> bool:
+    def is_path_complete(self, robot_x: float, robot_y: float, tolerance: float = None) -> bool:
         """
-        Avanza al prossimo waypoint se quello corrente è stato raggiunto
+        Verifica se il percorso è stato completato
         
-        Returns:
-            True se avanzato, False se non ci sono più waypoint
+        Args:
+            robot_x, robot_y: Posizione corrente robot
+            tolerance: Tolleranza per considerare raggiunto il target
         """
+        if not self.has_valid_path():
+            return True  # Nessun percorso = completato
+        
         if tolerance is None:
             tolerance = ControlConfig.POSITION_TOLERANCE
         
-        current_waypoint = self.get_current_waypoint()
-        if current_waypoint is None:
-            return False
-        
-        # Verifica se waypoint raggiunto
-        distance = math.sqrt(
-            (robot_x - current_waypoint.x)**2 + (robot_y - current_waypoint.y)**2
+        # Controlla se siamo vicini al target finale
+        final_target = self.current_path[-1]
+        distance_to_final = math.sqrt(
+            (robot_x - final_target.x)**2 + (robot_y - final_target.y)**2
         )
         
-        if distance <= tolerance:
-            self.current_waypoint_index += 1
-            
-            if self.current_waypoint_index < len(self.current_path):
-                next_waypoint = self.current_path[self.current_waypoint_index]
-                self.logger.info(f"Waypoint {self.current_waypoint_index}: "
-                               f"({next_waypoint.x:.1f}, {next_waypoint.y:.1f})")
-                return True
-            else:
-                self.logger.info("🎯 Percorso completato!")
-                return False
+        path_complete = distance_to_final <= tolerance
         
-        return True
+        # DEBOUNCE del log per evitare spam
+        if path_complete and not hasattr(self, '_completion_logged'):
+            self.logger.info("🎯 Target finale raggiunto!")
+            self._completion_logged = True
+        elif not path_complete and hasattr(self, '_completion_logged'):
+            # Reset flag se non siamo più al target
+            delattr(self, '_completion_logged')
+        
+        return path_complete
     
     def get_path_info(self) -> Dict:
         """Ritorna informazioni sul percorso corrente"""
+        waypoint_info = self.dynamic_waypoint.get_progress_info()
+        
         return {
             "has_path": len(self.current_path) > 0,
             "total_waypoints": len(self.current_path),
-            "current_waypoint": self.current_waypoint_index,
-            "waypoints_remaining": max(0, len(self.current_path) - self.current_waypoint_index),
-            "is_complete": self.current_waypoint_index >= len(self.current_path)
+            "path_progress": waypoint_info["progress"],
+            "path_progress_percent": waypoint_info["progress_percent"],
+            "is_complete": waypoint_info["is_complete"],
+            "waypoint_position": waypoint_info["current_position"]
         }
     
     def get_full_path(self) -> List[PathPoint]:
         """Ritorna il percorso completo per visualizzazione"""
         return self.current_path.copy()
     
+    def get_dynamic_waypoint_position(self) -> Optional[PathPoint]:
+        """Ritorna la posizione corrente del waypoint dinamico"""
+        return self.dynamic_waypoint.get_current_waypoint()
+    
     def clear_path(self):
         """Cancella il percorso corrente"""
         self.current_path = []
-        self.current_waypoint_index = 0
+        self.dynamic_waypoint.set_path([])
         self._last_target = None
         self._last_robot_pos = None
         self._last_obstacles = {}
+        
+        # Reset flag completion per evitare spam
+        if hasattr(self, '_completion_logged'):
+            delattr(self, '_completion_logged')
+            
         self.logger.info("Percorso cancellato")
+    
+    # Metodi legacy per compatibilità (DEPRECATI)
+    def advance_waypoint(self, robot_x: float, robot_y: float, 
+                        tolerance: float = None) -> bool:
+        """
+        DEPRECATO: Il waypoint ora si muove automaticamente!
+        Questo metodo è mantenuto solo per compatibilità.
+        """
+        self.logger.warning("advance_waypoint() è deprecato con waypoint dinamico!")
+        return not self.is_path_complete(robot_x, robot_y, tolerance)
 
 # Esempio di utilizzo e test
 if __name__ == "__main__":
     # Setup logging per debug
-    logging.basicConfig(level=logging.DEBUG, 
+    logging.basicConfig(level=logging.INFO, 
                        format='%(levelname)s: %(message)s')
     
-    # Test del sistema di pathfinding
-    print("=== Test Sistema Pathfinding ===")
+    # Test del sistema di pathfinding con waypoint dinamico
+    print("=== Test Sistema Pathfinding con Waypoint Dinamico ===")
     
     # Crea sistema
     pathfinding_system = PathfindingSystem()
     
     # Parametri test - SEMPLIFICATI per debug
-    robot_pos = (20, 20)
-    target_pos = (60, 60)
+    robot_pos = [20, 20]  # Lista per simulare movimento
+    target_pos = (80, 80)
     obstacles = {
-        5: (40, 40),  # Ostacolo centrale che DEVE essere evitato!
+        5: (50, 50),  # Ostacolo centrale che DEVE essere evitato!
     }
     
-    print(f"Robot: {robot_pos}")
+    print(f"Robot start: {robot_pos}")
     print(f"Target: {target_pos}")
     print(f"Obstacles: {obstacles}")
-    print(f"Inflazione ostacolo: {PathfindingConfig.OBSTACLE_INFLATION_RADIUS} unità arena")
+    print(f"Waypoint radius: {PathfindingConfig.DYNAMIC_WAYPOINT_RADIUS} unità arena")
     
-    # Calcola percorso SENZA ottimizzazioni
+    # Calcola percorso iniziale
     path_updated = pathfinding_system.update_path(
         robot_pos[0], robot_pos[1],
         target_pos[0], target_pos[1],
@@ -655,12 +872,56 @@ if __name__ == "__main__":
         print(f"\n✅ Percorso calcolato:")
         print(f"  Waypoint totali: {path_info['total_waypoints']}")
         
-        # Mostra TUTTI i waypoint
-        full_path = pathfinding_system.get_full_path()
-        for i, point in enumerate(full_path):
-            print(f"  {i}: ({point.x:.1f}, {point.y:.1f})")
+        # Simula movimento del robot lungo il percorso
+        print(f"\n=== Simulazione Movimento Robot ===")
+        simulation_steps = 10
         
-        print(f"\n✅ Test completato con successo!")
+        for step in range(simulation_steps):
+            # Simula movimento del robot verso il waypoint corrente
+            current_waypoint = pathfinding_system.get_current_waypoint(robot_pos[0], robot_pos[1])
+            
+            if current_waypoint is None:
+                print(f"Step {step}: Nessun waypoint disponibile")
+                break
+            
+            # Muovi robot verso waypoint (simulazione semplice)
+            direction_x = current_waypoint.x - robot_pos[0]
+            direction_y = current_waypoint.y - robot_pos[1]
+            distance = math.sqrt(direction_x**2 + direction_y**2)
+            
+            if distance > 0:
+                # Movimento di 5 unità verso il waypoint
+                move_distance = min(5.0, distance)
+                robot_pos[0] += (direction_x / distance) * move_distance
+                robot_pos[1] += (direction_y / distance) * move_distance
+            
+            # Verifica se percorso completato
+            if pathfinding_system.is_path_complete(robot_pos[0], robot_pos[1]):
+                print(f"Step {step}: 🎯 TARGET RAGGIUNTO!")
+                print(f"  Robot finale: ({robot_pos[0]:.1f}, {robot_pos[1]:.1f})")
+                break
+            
+            # Mostra stato corrente
+            path_info = pathfinding_system.get_path_info()
+            print(f"Step {step}: Robot=({robot_pos[0]:.1f}, {robot_pos[1]:.1f}), "
+                  f"Waypoint=({current_waypoint.x:.1f}, {current_waypoint.y:.1f}), "
+                  f"Progress={path_info['path_progress_percent']:.1f}%")
+        
+        print(f"\n✅ Test waypoint dinamico completato!")
+        
+        # Mostra confronto con sistema classico
+        print(f"\n=== Confronto Sistemi ===")
+        print(f"🆚 Sistema CLASSICO: Robot va da punto fisso a punto fisso")
+        print(f"   - Movimento a scatti")
+        print(f"   - Fermate ad ogni waypoint")
+        print(f"   - Controllo PID su target fissi")
+        print(f"")
+        print(f"🆕 Sistema DINAMICO: Waypoint si muove continuamente")
+        print(f"   - Movimento fluido")
+        print(f"   - Nessuna fermata")
+        print(f"   - Controllo PID su target mobile a distanza fissa")
+        print(f"   - Radius waypoint: {PathfindingConfig.DYNAMIC_WAYPOINT_RADIUS} unità")
+        
     else:
         print(f"\n❌ Impossibile calcolare percorso")
         

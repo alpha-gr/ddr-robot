@@ -493,6 +493,17 @@ class IntegratedRobotSystem:
                     self.last_stop_call = current_time
                 return
         else:
+            # NUOVO: Verifica se siamo già al target e non serve ricalcolare
+            if hasattr(self, '_target_reached') and self._target_reached:
+                # Verifica se il target è cambiato da quando l'abbiamo raggiunto
+                if (hasattr(self, '_last_pathfinding_target') and 
+                    target_pos == self._last_pathfinding_target):
+                    # Stesso target già raggiunto, non fare nulla
+                    return
+                else:
+                    # Nuovo target, resetta il flag
+                    self._target_reached = False
+            
             # AGGIORNA PATHFINDING SOLO SE NECESSARIO
             # Non ricalcolare il percorso ad ogni frame per evitare reset PID continui
             needs_recalc = False
@@ -550,12 +561,16 @@ class IntegratedRobotSystem:
                 else:
                     self.logger.debug(f"🗺️ Pathfinding: Mantengo percorso esistente")
         
-        # USA IL PERCORSO ESISTENTE
-        current_waypoint = self.pathfinding.get_current_waypoint()
+        # USA IL WAYPOINT DINAMICO
+        # IMPORTANTE: Ora get_current_waypoint richiede la posizione del robot!
+        current_waypoint = self.pathfinding.get_current_waypoint(
+            vision_data["robot_x"], vision_data["robot_y"]
+        )
+        
         if current_waypoint:
-            # MODIFICA CHIAVE: Imposta waypoint come target SOLO se veramente diverso
-            # Usa tolleranza più piccola per evitare oscillazioni ma abbastanza grande per evitare reset continui
-            waypoint_tolerance = 2.0  # Tolleranza per cambi waypoint
+            # Il waypoint dinamico si muove continuamente, quindi dobbiamo sempre aggiornare il target
+            # Usa una tolleranza piccola per un controllo fluido
+            waypoint_tolerance = 1.0  # Tolleranza ridotta per movimento fluido
             
             if (not self.last_target_sent or 
                 abs(current_waypoint.x - self.last_target_sent[0]) > waypoint_tolerance or 
@@ -563,36 +578,39 @@ class IntegratedRobotSystem:
                 
                 self.controller.set_target_position(current_waypoint.x, current_waypoint.y)
                 self.last_target_sent = (current_waypoint.x, current_waypoint.y)
-                self.logger.debug(f"🎯 Nuovo waypoint: ({current_waypoint.x:.1f}, {current_waypoint.y:.1f})")
-            
-            # Verifica se waypoint corrente è stato raggiunto
-            if self.controller.is_at_target():
-                waypoint_advanced = self.pathfinding.advance_waypoint(
-                    vision_data["robot_x"], vision_data["robot_y"]
-                )
                 
-                if waypoint_advanced:
-                    # IMPORTANTE: Non resettare last_target_sent qui
-                    # Lascia che il prossimo ciclo gestisca il nuovo waypoint
-                    self.logger.debug("➡️ Avanzato al prossimo waypoint")
-                else:
-                    # Percorso completato!
-                    path_info = self.pathfinding.get_path_info()
-                    if path_info["is_complete"]:
-                        self.logger.info("🎉 Percorso pathfinding completato!")
-                        await self.controller.stop()
-                        
-                        # Invia notifica movimento completato se era remoto
-                        if self.remote_movement_active and self.remote_target_id:
-                            await self._send_movement_done_notification()
-                        else:
-                            # Reset target solo se non era un movimento remoto
-                            if not self.follow_mouse_mode:
-                                self.mouse_target = None
-                                self.last_target_sent = None
-                                # Reset anche variabili pathfinding
-                                if hasattr(self, '_last_pathfinding_target'):
-                                    del self._last_pathfinding_target
+                # Log più dettagliato per il waypoint dinamico
+                path_info = self.pathfinding.get_path_info()
+                self.logger.debug(f"🎯 Waypoint dinamico aggiornato: ({current_waypoint.x:.1f}, {current_waypoint.y:.1f}) "
+                                f"[Progress: {path_info['path_progress_percent']:.1f}%]")
+            
+            # Verifica se l'intero percorso è stato completato (non più singolo waypoint!)
+            if self.pathfinding.is_path_complete(vision_data["robot_x"], vision_data["robot_y"]):
+                # Percorso completato!
+                path_info = self.pathfinding.get_path_info()
+                if path_info["is_complete"]:
+                    self.logger.info("🎉 Percorso pathfinding completato!")
+                    await self.controller.stop()
+                    
+                    # IMPORTANTE: Pulisci il percorso per evitare loop infiniti
+                    self.pathfinding.clear_path()
+                    
+                    # Invia notifica movimento completato se era remoto
+                    if self.remote_movement_active and self.remote_target_id:
+                        await self._send_movement_done_notification()
+                    else:
+                        # Reset target solo se non era un movimento remoto
+                        if not self.follow_mouse_mode:
+                            self.mouse_target = None
+                            self.last_target_sent = None
+                            # Reset anche variabili pathfinding
+                            if hasattr(self, '_last_pathfinding_target'):
+                                del self._last_pathfinding_target
+                            
+                            # NUOVO: Flag per indicare che il target è stato raggiunto
+                            self._target_reached = True
+                    
+                    return  # Esci dalla funzione per evitare ulteriori elaborazioni
         else:
             # NESSUN PERCORSO VALIDO: Ferma il robot (con debounce)
             current_time = time.time()

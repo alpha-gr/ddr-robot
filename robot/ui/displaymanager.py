@@ -281,20 +281,25 @@ class DisplayManager:
             info_lines.append("--- PATHFINDING ---")
             if path_info["has_path"]:
                 info_lines.extend([
-                    f"Waypoints: {path_info['current_waypoint']}/{path_info['total_waypoints']}",
-                    f"Rimangono: {path_info['waypoints_remaining']}",
+                    f"Waypoints: {path_info['total_waypoints']}",
+                    f"Progress: {path_info['path_progress_percent']:.1f}%",
                     f"Status: {'COMPLETE' if path_info['is_complete'] else 'NAVIGATING'}"
                 ])
                 
-                # Info waypoint corrente
-                current_wp = self.pathfinding.get_current_waypoint()
-                if current_wp and vision_data["robot_found"]:
-                    wp_distance = math.sqrt(
-                        (current_wp.x - vision_data["robot_x"])**2 + 
-                        (current_wp.y - vision_data["robot_y"])**2
+                # Info waypoint dinamico corrente
+                if vision_data["robot_found"]:
+                    current_wp = self.pathfinding.get_current_waypoint(
+                        vision_data["robot_x"], vision_data["robot_y"]
                     )
-                    info_lines.append(f"Next WP: ({current_wp.x:.1f}, {current_wp.y:.1f})")
-                    info_lines.append(f"WP Dist: {wp_distance:.1f}")
+                    if current_wp:
+                        wp_distance = math.sqrt(
+                            (current_wp.x - vision_data["robot_x"])**2 + 
+                            (current_wp.y - vision_data["robot_y"])**2
+                        )
+                        info_lines.append(f"Dynamic WP: ({current_wp.x:.1f}, {current_wp.y:.1f})")
+                        info_lines.append(f"WP Dist: {wp_distance:.1f}")
+                else:
+                    info_lines.append("Dynamic WP: No robot position")
             else:
                 info_lines.append("Path: Calcolo...")
         
@@ -343,8 +348,12 @@ class DisplayManager:
             
             prev_screen_pos = screen_pos
         
-        # Disegna waypoint
-        current_waypoint_index = path_info["current_waypoint"]
+        # Disegna waypoint dinamico
+        dynamic_waypoint = None
+        if vision_data["robot_found"]:
+            dynamic_waypoint = self.pathfinding.get_current_waypoint(
+                vision_data["robot_x"], vision_data["robot_y"]
+            )
         
         for i, path_point in enumerate(full_path):
             screen_pos = self.coords._transform_arena_to_screen(
@@ -352,17 +361,19 @@ class DisplayManager:
             )
             
             if screen_pos:
-                if i == current_waypoint_index:
-                    # Waypoint corrente - più grande e giallo
-                    cv2.circle(frame, screen_pos, 8, UIConfig.COLOR_CURRENT_WAYPOINT, -1)
-                    cv2.circle(frame, screen_pos, 10, (0, 0, 0), 2)  # Bordo nero
-                    cv2.putText(frame, f"WP{i}", 
-                               (screen_pos[0] + 12, screen_pos[1] - 5),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, UIConfig.COLOR_CURRENT_WAYPOINT, 1)
-                elif i < current_waypoint_index:
-                    # Waypoint già visitati - grigi
-                    cv2.circle(frame, screen_pos, 4, (128, 128, 128), -1)
-                else:
-                    # Waypoint futuri - arancioni
-                    cv2.circle(frame, screen_pos, 6, UIConfig.COLOR_WAYPOINT, -1)
-                    cv2.circle(frame, screen_pos, 7, (0, 0, 0), 1)  # Bordo nero sottile
+                # Disegna tutti i waypoint come punti normali
+                cv2.circle(frame, screen_pos, 6, UIConfig.COLOR_WAYPOINT, -1)
+                # cv2.circle(frame, screen_pos, 6, (255, 255, 255), 2)
+        
+        # Disegna il waypoint dinamico corrente (se esiste)
+        if dynamic_waypoint:
+            dynamic_screen_pos = self.coords._transform_arena_to_screen(
+                (dynamic_waypoint.x, dynamic_waypoint.y), vision_data["arena_markers"], frame_width, frame_height
+            )
+            if dynamic_screen_pos:
+                # Waypoint dinamico - più grande e verde brillante
+                cv2.circle(frame, dynamic_screen_pos, 10, (0, 255, 0), -1)  # Verde brillante
+                cv2.circle(frame, dynamic_screen_pos, 11, (0, 0, 0), 2)     # Bordo nero
+                cv2.putText(frame, "waypoint", 
+                           (dynamic_screen_pos[0] + 16, dynamic_screen_pos[1] - 5),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)

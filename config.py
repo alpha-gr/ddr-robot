@@ -130,6 +130,11 @@ class PathfindingConfig:
 
     # Ricalcolo percorso
     PATHFINDING_RECALC_DISTANCE = 3.0 # Distanza minima cambiamento posizione robot per ricalcolo
+    
+    # Waypoint dinamico per controllo fluido
+    DYNAMIC_WAYPOINT_RADIUS = 15.0   # Distanza avanti al robot per waypoint dinamico
+    MIN_ADVANCE_DISTANCE = 2.0       # Distanza minima per avanzare lungo il percorso
+    WAYPOINT_SMOOTHING = 0.8         # Fattore smoothing per movimento waypoint (0-1)
 
 
 class CommunicationConfig:
