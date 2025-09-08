@@ -21,7 +21,7 @@ public class RobotClientTest {
             System.out.println("🎯 Test movimenti con attesa completamento...");
             
             System.out.println("\n--- Movimento 1 ---");
-            String id1 = robot.moveRobot(60, 20);
+            String id1 = robot.moveRobot(0,0);
             System.out.println("✅ Movimento 1 COMPLETATO: " + id1);
             
             System.out.println("\n--- Movimento 2 ---");

@@ -145,7 +145,7 @@ public class RobotClient {
         }
         
         JsonObject command = new JsonObject();
-        command.addProperty("command", "moverobot");
+        command.addProperty("command", "movetosquare");
         command.addProperty("x", x);
         command.addProperty("y", y);
         

@@ -6,6 +6,17 @@ Parametri di configurazione centralizzati per il sistema di controllo robotico
 
 import cv2
 
+class MapConfig:
+    """Configurazione mappa per compatibilità con software qak basicrobot"""
+    MAP_TO_TARGET = {
+        (0, 0): "Home",
+        (0, 4): "Pickup",
+        (1, 1): "Slot_1",
+        (4, 1): "Slot_2",
+        (1, 3): "Slot_3",
+        (4, 3): "Slot_4",
+        (5, 2): "Slot_5",
+    }
 
 class RobotConfig:
     """Configurazione hardware e fisica del robot"""

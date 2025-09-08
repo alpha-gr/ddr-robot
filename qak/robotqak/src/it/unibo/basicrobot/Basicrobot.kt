@@ -19,6 +19,7 @@ import org.json.simple.JSONObject
 
 
 //User imports JAN2024
+import main.java.RobotClient
 
 class Basicrobot ( name: String, scope: CoroutineScope, isconfined: Boolean=false, isdynamic: Boolean=false ) : 
           ActorBasicFsm( name, scope, confined=isconfined, dynamically=isdynamic ){
@@ -29,15 +30,92 @@ class Basicrobot ( name: String, scope: CoroutineScope, isconfined: Boolean=fals
 	override fun getBody() : (ActorBasicFsm.() -> Unit){
 		//val interruptedStateTransitions = mutableListOf<Transition>()
 		//IF actor.withobj !== null val actor.withobj.name» = actor.withobj.method»ENDIF
+		val robotclient = RobotClient("ws://localhost:8765")
 		return { //this:ActionBasciFsm
 				state("s0") { //this:State
 					action { //it:State
-						CommUtils.outblack("robot starting")
+						CommUtils.outblack("basicrobot | mi connetto al server...")
+						 robotclient.connect()  
 						//genTimer( actor, state )
 					}
 					//After Lenzi Aug2002
 					sysaction { //it:State
 					}	 	 
+					 transition( edgeName="goto",targetState="work", cond=doswitch() )
+				}	 
+				state("work") { //this:State
+					action { //it:State
+						CommUtils.outblack("basicrobot | working...")
+						//genTimer( actor, state )
+					}
+					//After Lenzi Aug2002
+					sysaction { //it:State
+					}	 	 
+					 transition(edgeName="t00",targetState="doEngage",cond=whenRequest("engage"))
+					transition(edgeName="t01",targetState="doDisengage",cond=whenDispatch("disengage"))
+					transition(edgeName="t02",targetState="doMoveRobot",cond=whenRequest("moverobot"))
+					transition(edgeName="t03",targetState="doSetDirection",cond=whenDispatch("setdirection"))
+					transition(edgeName="t04",targetState="giveEnvmap",cond=whenRequest("getenvmap"))
+				}	 
+				state("doEngage") { //this:State
+					action { //it:State
+						CommUtils.outblack("basicrobot | engaging")
+						 robotclient.engage()  
+						answer("engage", "engagedone", "engagedone(1)"   )  
+						//genTimer( actor, state )
+					}
+					//After Lenzi Aug2002
+					sysaction { //it:State
+					}	 	 
+					 transition( edgeName="goto",targetState="work", cond=doswitch() )
+				}	 
+				state("doDisengage") { //this:State
+					action { //it:State
+						 robotclient.disengage()  
+						CommUtils.outblack("basicrobot | disengaging")
+						//genTimer( actor, state )
+					}
+					//After Lenzi Aug2002
+					sysaction { //it:State
+					}	 	 
+					 transition( edgeName="goto",targetState="work", cond=doswitch() )
+				}	 
+				state("doMoveRobot") { //this:State
+					action { //it:State
+						if( checkMsgContent( Term.createTerm("moverobot(TARGETX,TARGETY)"), Term.createTerm("moverobot(TARGETX,TARGETY)"), 
+						                        currentMsg.msgContent()) ) { //set msgArgList
+								 robotclient.moveRobot(payloadArg(0).toInt(), payloadArg(1).toInt())  
+						}
+						CommUtils.outblack("basicrobot | moving")
+						answer("moverobot", "moverobotdone", "moverobotok(1)"   )  
+						//genTimer( actor, state )
+					}
+					//After Lenzi Aug2002
+					sysaction { //it:State
+					}	 	 
+					 transition( edgeName="goto",targetState="work", cond=doswitch() )
+				}	 
+				state("doSetDirection") { //this:State
+					action { //it:State
+						CommUtils.outblack("basicrobot | setting direction")
+						CommUtils.outred("not yet supported")
+						//genTimer( actor, state )
+					}
+					//After Lenzi Aug2002
+					sysaction { //it:State
+					}	 	 
+					 transition( edgeName="goto",targetState="work", cond=doswitch() )
+				}	 
+				state("giveEnvmap") { //this:State
+					action { //it:State
+						CommUtils.outblack("basicrobot | envmap")
+						answer("getenvmap", "envmap", "envmap(envmap_not_supported)"   )  
+						//genTimer( actor, state )
+					}
+					//After Lenzi Aug2002
+					sysaction { //it:State
+					}	 	 
+					 transition( edgeName="goto",targetState="work", cond=doswitch() )
 				}	 
 			}
 		}

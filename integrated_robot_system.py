@@ -18,7 +18,7 @@ from robot.comm.robot_websocketserver import RobotWebSocketServer
 from robot.vision.coords import Coordinates
 from robot.vision.visionsystem import VisionSystem
 from robot.control.robot_controller import RobotController, RobotState, TargetState
-from config import VisionConfig, SystemConfig, UIConfig, ControlConfig
+from config import VisionConfig, SystemConfig, UIConfig, ControlConfig, MapConfig
 from robot.path.pathfinding import PathfindingSystem, PathPoint
 
 # Setup logging
@@ -119,29 +119,43 @@ class IntegratedRobotSystem:
                 if x is None or y is None:
                     return {"status": "error", "message": "x e y sono richiesti"}
                 return await self._handle_move_robot(x, y)
+            elif command == "movetosquare":
+                x = message.get("x")
+                y = message.get("y")
+                if x is None or y is None:
+                    return {"status": "error", "message": "x e y sono richiesti"}
+                return await self._handle_move_square(x, y)
             elif command == "gototarget":
                 target_name = message.get("target")
                 if not target_name:
                     return {"status": "error", "message": "target è richiesto"}
-                
-                # Verifica se il target esiste
-                if not self.targets:
-                    return {"status": "error", "message": "Nessun target definito"}
-                if target_name not in self.targets:
-                    return {"status": "error", "message": f"Target sconosciuto: {target_name}"}
-                
-                target_pos = self.targets[target_name]
-                target_pos = self.coords._transform_to_arena_coordinates(target_pos, arena_markers=self.vision.arena_markers)
-                print(f"Moving to target '{target_name}' at position {target_pos}")
-
-                return await self._handle_move_robot(target_pos[0], target_pos[1])
+                return await self._handle_goto_target(target_name)
             else:
                 return {"status": "error", "message": f"Comando sconosciuto: {command}"}
                 
         except Exception as e:
             self.logger.error(f"Errore gestione messaggio remoto: {e}")
             return {"status": "error", "message": str(e)}
-    
+        
+    async def _handle_goto_target(self, target_name: str) -> Dict[str, Any]:
+        # Verifica se il target esiste
+        if not self.targets:
+            return {"status": "error", "message": "Nessun target definito"}
+        if target_name not in self.targets:
+            return {"status": "error", "message": f"Target sconosciuto: {target_name}"}
+        
+        target_pos = self.targets[target_name]
+        target_pos = self.coords._transform_to_arena_coordinates(target_pos, arena_markers=self.vision.arena_markers)
+        print(f"Moving to target '{target_name}' at position {target_pos}")
+        return await self._handle_move_robot(target_pos[0], target_pos[1])
+
+    async def _handle_move_square(self, x: int, y: int) -> Dict[str, Any]:
+        """Muove il robot in uno dei target mappati su una griglia - per compatibilità con sistema qak basicrobot"""
+        target = MapConfig.MAP_TO_TARGET.get((x, y))
+        if not target:
+            return {"status": "error", "message": f"Nessun target mappato per ({x}, {y})"}
+        return await self._handle_goto_target(target)
+
     async def _handle_engage(self) -> Dict[str, Any]:
         """Attiva controllo remoto"""
         try:
