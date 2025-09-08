@@ -21,14 +21,52 @@ class DisplayManager:
         # Aggiungi logger per i messaggi
         import logging
         self.logger = logging.getLogger(__name__)
+    
+    def _arena_to_screen(self, arena_pos, vision_data, frame_width, frame_height):
+        """
+        Converte coordinate arena (0-100) in coordinate schermo
+        Gestisce sia frame originale che frame corretto
+        """
+        if self.vision.perspective_calibrated and vision_data.get("perspective_corrected", False):
+            # Frame corretto: conversione diretta
+            margin = 50
+            arena_width = self.vision.corrected_frame_size[0] - 2 * margin
+            arena_height = self.vision.corrected_frame_size[1] - 2 * margin
+            
+            # Inverti Y per OpenCV e converti in pixel
+            screen_x = int(margin + (arena_pos[0] / 100) * arena_width)
+            screen_y = int(margin + ((100 - arena_pos[1]) / 100) * arena_height)
+            
+            return (screen_x, screen_y)
+        else:
+            # Frame originale: usa il sistema esistente
+            return self.coords._transform_arena_to_screen(
+                arena_pos, vision_data["arena_markers"], frame_width, frame_height
+            )
 
     def mouse_callback(self, event, x, y, flags, param):
         """Callback per mouse - gestisce target fisso o follow mode"""
         # Aggiorna sempre la posizione corrente del mouse
         if len(self.vision.arena_markers) >= 2:
-            arena_coords = self.coords._transform_to_arena_coordinates((x, y), self.vision.arena_markers)
-            if arena_coords:
-                self.system.current_mouse_pos = arena_coords
+            if self.vision.perspective_calibrated:
+                # Frame corretto: calcola coordinate direttamente dai margini
+                margin = 50
+                arena_width = self.vision.corrected_frame_size[0] - 2 * margin
+                arena_height = self.vision.corrected_frame_size[1] - 2 * margin
+                
+                mouse_x = ((x - margin) / arena_width) * 100
+                mouse_y = ((y - margin) / arena_height) * 100
+                
+                # Clamp e inverti Y
+                mouse_x = max(0, min(100, mouse_x))
+                mouse_y = max(0, min(100, 100 - mouse_y))
+                
+                self.system.current_mouse_pos = (mouse_x, mouse_y)
+            else:
+                # Frame originale: usa il sistema esistente
+                arena_coords = self.coords._transform_to_arena_coordinates((x, y), self.vision.arena_markers)
+                if arena_coords:
+                    self.system.current_mouse_pos = arena_coords
         
         # Click per target fisso (solo se non in follow mode)
         if event == cv2.EVENT_LBUTTONDOWN and not self.system.follow_mouse_mode:
@@ -50,8 +88,18 @@ class DisplayManager:
 
     def draw_overlay(self, frame, vision_data) -> np.ndarray:
             """Disegna overlay informativo sul frame"""
-            overlay_frame = frame.copy()
-            frame_height, frame_width = frame.shape[:2]
+            # Usa il frame corretto se disponibile
+            if vision_data.get("perspective_corrected") and vision_data.get("corrected_frame") is not None:
+                overlay_frame = vision_data["corrected_frame"].copy()
+                
+                # Aggiungi indicatore che stiamo usando frame corretto
+                cv2.putText(overlay_frame, "PERSPECTIVE CORRECTED", 
+                           (10, overlay_frame.shape[0] - 20), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            else:
+                overlay_frame = frame.copy()
+                
+            frame_height, frame_width = overlay_frame.shape[:2]
             
             # Disegna marker arena
             for marker_id, center in vision_data["arena_markers"].items():
@@ -90,9 +138,9 @@ class DisplayManager:
             # Disegna robot se trovato
             if vision_data["robot_found"]:
                 # Usa la trasformazione corretta arena -> schermo
-                robot_screen_pos = self.coords._transform_arena_to_screen(
+                robot_screen_pos = self._arena_to_screen(
                     (vision_data["robot_x"], vision_data["robot_y"]), 
-                    vision_data["arena_markers"], frame_width, frame_height
+                    vision_data, frame_width, frame_height
                 )
                 
                 if robot_screen_pos:
@@ -143,8 +191,8 @@ class DisplayManager:
             if self.system.follow_mouse_mode:
                 # FOLLOW MODE: Disegna cursore mouse come target
                 if self.system.current_mouse_pos:
-                    target_screen_pos = self.coords._transform_arena_to_screen(
-                        self.system.current_mouse_pos, vision_data["arena_markers"], frame_width, frame_height
+                    target_screen_pos = self._arena_to_screen(
+                        self.system.current_mouse_pos, vision_data, frame_width, frame_height
                     )
                     
                     if target_screen_pos:
@@ -158,8 +206,8 @@ class DisplayManager:
             else:
                 # TARGET MODE: Disegna target fisso
                 if self.system.mouse_target:
-                    target_screen_pos = self.coords._transform_arena_to_screen(
-                        self.system.mouse_target, vision_data["arena_markers"], frame_width, frame_height
+                    target_screen_pos = self._arena_to_screen(
+                        self.system.mouse_target, vision_data, frame_width, frame_height
                     )
                     
                     if target_screen_pos:
@@ -195,17 +243,26 @@ class DisplayManager:
         """Disegna pannello informazioni"""
         frame_height, frame_width = frame.shape[:2]
         
+        # Info calibrazione prospettica
+        perspective_info = self.vision.get_perspective_info()
+        perspective_status = "✅ OK" if perspective_info["calibrated"] else "❌ NO"
+        
         info_lines = [
             f"FPS: {self.system.current_fps:.1f}",
             f"Arena: {len(vision_data['arena_markers'])}/4",
+            f"Perspective: {perspective_status}",
             f"Obstacles: {len(vision_data['obstacles'])}",
             f"Robot: {'OK' if vision_data['robot_found'] else 'LOST'}",
             f"Control: {'ON' if self.controller.control_enabled else 'OFF'}",
             f"Mode: {'🐭 FOLLOW' if self.system.follow_mouse_mode else '🎯 TARGET'}",
             f"Navigation: {'🗺️ PATHFINDING' if self.system.pathfinding_mode else '➡️ DIRECT'}",
-            "--- CALIBRAZIONE ---",
-            "WASD per muoversi",
-            "SPACE per fermarsi"
+            "--- CONTROLLI ---",
+            "WASD: movimento manuale",
+            "SPACE: ferma robot",
+            "F: toggle follow mouse",
+            "P: toggle pathfinding",
+            "V: calibra prospettiva",
+            "N: reset prospettiva"
         ]
         
         if vision_data["robot_found"]:
@@ -338,8 +395,8 @@ class DisplayManager:
         # Disegna linee del percorso
         prev_screen_pos = None
         for i, path_point in enumerate(full_path):
-            screen_pos = self.coords._transform_arena_to_screen(
-                (path_point.x, path_point.y), vision_data["arena_markers"], frame_width, frame_height
+            screen_pos = self._arena_to_screen(
+                (path_point.x, path_point.y), vision_data, frame_width, frame_height
             )
             
             if screen_pos and prev_screen_pos:
@@ -356,8 +413,8 @@ class DisplayManager:
             )
         
         for i, path_point in enumerate(full_path):
-            screen_pos = self.coords._transform_arena_to_screen(
-                (path_point.x, path_point.y), vision_data["arena_markers"], frame_width, frame_height
+            screen_pos = self._arena_to_screen(
+                (path_point.x, path_point.y), vision_data, frame_width, frame_height
             )
             
             if screen_pos:
@@ -367,8 +424,8 @@ class DisplayManager:
         
         # Disegna il waypoint dinamico corrente (se esiste)
         if dynamic_waypoint:
-            dynamic_screen_pos = self.coords._transform_arena_to_screen(
-                (dynamic_waypoint.x, dynamic_waypoint.y), vision_data["arena_markers"], frame_width, frame_height
+            dynamic_screen_pos = self._arena_to_screen(
+                (dynamic_waypoint.x, dynamic_waypoint.y), vision_data, frame_width, frame_height
             )
             if dynamic_screen_pos:
                 # Waypoint dinamico - più grande e verde brillante

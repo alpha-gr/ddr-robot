@@ -9,6 +9,7 @@ import math
 import numpy as np
 import time
 import logging
+import traceback
 from typing import Any, Optional, Tuple, Dict
 from datetime import datetime
 
@@ -81,6 +82,45 @@ class IntegratedRobotSystem:
 
         self.targets = {}
     
+    async def _initialize_perspective_correction(self):
+        """Inizializza la correzione prospettica automaticamente"""
+        calibration_file = "perspective_calibration.npz"
+        
+        # Prima prova a caricare calibrazione salvata
+        if self.vision.load_perspective_calibration(calibration_file):
+            self.logger.info("✅ Calibrazione prospettica caricata automaticamente")
+            return
+        
+        # Se non esiste calibrazione salvata, prova a calibrare automaticamente
+        self.logger.info("🔄 Calibrazione prospettica non trovata, provo calibrazione automatica...")
+        
+        max_attempts = 30  # 3 secondi di tentativi
+        attempt = 0
+        
+        while attempt < max_attempts:
+            ret, frame = self.vision.cap.read()
+            if not ret:
+                attempt += 1
+                await asyncio.sleep(0.1)
+                continue
+            
+            # Prova calibrazione automatica
+            if self.vision.calibrate_perspective(frame):
+                self.logger.info("✅ Calibrazione prospettica automatica completata!")
+                
+                # Salva la calibrazione per la prossima volta
+                if self.vision.save_perspective_calibration(calibration_file):
+                    self.logger.info("💾 Calibrazione salvata automaticamente")
+                
+                return
+            
+            attempt += 1
+            await asyncio.sleep(0.1)
+        
+        self.logger.warning("⚠️ Calibrazione prospettica automatica fallita")
+        self.logger.warning("   Assicurati che tutti e 4 i marker arena (ID 1,2,3,4) siano visibili")
+        self.logger.warning("   Il sistema continuerà senza correzione prospettica")
+    
     async def initialize(self) -> bool:
         """Inizializza tutto il sistema"""
         self.logger.info("Inizializzando sistema integrato...")
@@ -88,6 +128,9 @@ class IntegratedRobotSystem:
         # Inizializza visione
         if not self.vision.initialize_camera():
             return False
+        
+        # NUOVO: Calibrazione automatica prospettiva
+        await self._initialize_perspective_correction()
         
         # Inizializza controller
         if not await self.controller.initialize():
@@ -421,6 +464,21 @@ class IntegratedRobotSystem:
                     else:
                         await self.controller.stop()
                         self.logger.info("🎯 FOLLOW MOUSE disattivato - Torna a target fissi")
+                
+                # CALIBRAZIONE PROSPETTIVA
+                elif key == ord('v'):
+                    # Re-calibra prospettiva
+                    self.logger.info("🔄 Re-calibrazione prospettiva...")
+                    if self.vision.calibrate_perspective(frame):
+                        self.logger.info("✅ Re-calibrazione completata!")
+                        # Salva automaticamente
+                        self.vision.save_perspective_calibration("perspective_calibration.npz")
+                    else:
+                        self.logger.warning("❌ Re-calibrazione fallita")
+                elif key == ord('n'):
+                    # Reset calibrazione prospettiva
+                    self.vision.reset_perspective_calibration()
+                    self.logger.info("🔄 Calibrazione prospettiva resettata")
                     
                 # CONTROLLI MANUALI per calibrazione
                 elif key == ord('w'):
@@ -471,11 +529,27 @@ class IntegratedRobotSystem:
         obstacles_arena = {}
         if vision_data["obstacles"] and vision_data["arena_valid"]:
             for obs_id, obs_center in vision_data["obstacles"].items():
-                obs_arena_coords = self.coords._transform_to_arena_coordinates(
-                    obs_center, vision_data["arena_markers"]
-                )
-                if obs_arena_coords:
-                    obstacles_arena[obs_id] = obs_arena_coords
+                if vision_data.get("perspective_corrected", False):
+                    # Frame corretto: calcola coordinate direttamente dai margini
+                    margin = 50  # Stesso margine usato nella calibrazione
+                    arena_width = self.vision.corrected_frame_size[0] - 2 * margin
+                    arena_height = self.vision.corrected_frame_size[1] - 2 * margin
+                    
+                    obs_x = ((obs_center[0] - margin) / arena_width) * 100
+                    obs_y = ((obs_center[1] - margin) / arena_height) * 100
+                    
+                    # Clamp e inverti Y
+                    obs_x = max(0, min(100, obs_x))
+                    obs_y = max(0, min(100, 100 - obs_y))
+                    
+                    obstacles_arena[obs_id] = (obs_x, obs_y)
+                else:
+                    # Frame originale: usa il sistema esistente
+                    obs_arena_coords = self.coords._transform_to_arena_coordinates(
+                        obs_center, vision_data["arena_markers"]
+                    )
+                    if obs_arena_coords:
+                        obstacles_arena[obs_id] = obs_arena_coords
         
         # Determina target per pathfinding
         target_pos = None
