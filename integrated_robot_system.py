@@ -78,6 +78,8 @@ class IntegratedRobotSystem:
         self._last_obstacle_count = 0
         
         self.logger = logging.getLogger(__name__)
+
+        self.targets = {}
     
     async def initialize(self) -> bool:
         """Inizializza tutto il sistema"""
@@ -117,6 +119,22 @@ class IntegratedRobotSystem:
                 if x is None or y is None:
                     return {"status": "error", "message": "x e y sono richiesti"}
                 return await self._handle_move_robot(x, y)
+            elif command == "gototarget":
+                target_name = message.get("target")
+                if not target_name:
+                    return {"status": "error", "message": "target è richiesto"}
+                
+                # Verifica se il target esiste
+                if not self.targets:
+                    return {"status": "error", "message": "Nessun target definito"}
+                if target_name not in self.targets:
+                    return {"status": "error", "message": f"Target sconosciuto: {target_name}"}
+                
+                target_pos = self.targets[target_name]
+                target_pos = self.coords._transform_to_arena_coordinates(target_pos, arena_markers=self.vision.arena_markers)
+                print(f"Moving to target '{target_name}' at position {target_pos}")
+
+                return await self._handle_move_robot(target_pos[0], target_pos[1])
             else:
                 return {"status": "error", "message": f"Comando sconosciuto: {command}"}
                 
@@ -178,6 +196,7 @@ class IntegratedRobotSystem:
             
             # Genera ID univoco per il movimento
             import time
+            import traceback
             movement_id = f"move_{int(time.time() * 1000)}"
             
             # Imposta target e inizia tracking movimento remoto
@@ -263,7 +282,10 @@ class IntegratedRobotSystem:
                 elif vision_data["obstacles"]:
                     obstacle_ids = list(vision_data["obstacles"].keys())
                     self.logger.info(f"🚧 Ostacoli rilevati: {obstacle_ids}")
-                    
+
+                if vision_data["targets"]:
+                    self.targets = vision_data["targets"]
+
                 self._last_obstacle_count = len(vision_data["obstacles"])
                 
                 # Aggiorna controller con dati visione
@@ -413,7 +435,7 @@ class IntegratedRobotSystem:
                 await asyncio.sleep(1.0 / SystemConfig.UI_UPDATE_RATE)
                 
         except Exception as e:
-            self.logger.error(f"Errore nel main loop: {e}")
+            self.logger.error(f"Errore nel main loop: {e}\n{traceback.format_exc()}")
         finally:
             # Cleanup
             if control_task:

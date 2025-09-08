@@ -26,9 +26,8 @@ async def test_robot_control():
             # Test 2: Move robot (con pathfinding)
             print("\n=== TEST 2: MOVE ROBOT ===")
             move_msg = {
-                "command": "moverobot",
-                "x": 20.0,
-                "y": 30.0
+                "command": "gototarget",
+                "target": "Slot_2"
             }
             await websocket.send(json.dumps(move_msg))
             response = await websocket.recv()

@@ -35,7 +35,23 @@ class VisionConfig:
     
     # Arena markers
     ARENA_MARKER_IDS = [1, 2, 3, 4]
+    TARGETS ={
+        5 : "Home",
+        6 : "Pickup",
+    }
+    TARGETS_MARKER_IDS = list(TARGETS.keys())
+    # gli slots sono sia ostacoli che target
+    SLOTS = {
+        11 : "Slot_1",
+        12 : "Slot_2",
+        13 : "Slot_3",
+        14 : "Slot_4",
+        15 : "Slot_5",
+    }
+    SLOTS_MARKER_IDS = list(SLOTS.keys())
     ROBOT_MARKER_ID = 0
+
+    TARGET_OFFSET_DISTANCE = 60
     
     # Tracking settings
     MIN_MARKER_AREA = 100     # Pixel minimi per marker valido
@@ -104,6 +120,7 @@ class UIConfig:
     COLOR_ROBOT = (0, 255, 255)        # Giallo
     COLOR_TARGET = (255, 0, 255)       # Magenta
     COLOR_OBSTACLES = (0, 0, 255)      # Rosso per ostacoli
+    COLOR_TARGETS = (0, 165, 255)      # Arancione per target
     COLOR_ARENA_MARKERS = {
         1: (255, 0, 0),                 # Blu
         2: (0, 255, 0),                 # Verde

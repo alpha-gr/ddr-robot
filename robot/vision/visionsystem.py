@@ -62,7 +62,8 @@ class VisionSystem:
             "robot_theta": 0.0,
             "arena_markers": {},
             "arena_valid": False,
-            "obstacles": {}
+            "obstacles": {},
+            "targets": {}
         }
         
         if ids is None:
@@ -72,6 +73,7 @@ class VisionSystem:
         arena_markers = {}
         robot_data = None
         obstacles = {}
+        targets = {}
         
         for i, marker_id in enumerate(ids.flatten()):
             # Calcola centro marker
@@ -86,15 +88,32 @@ class VisionSystem:
                     "center": center,
                     "corners": corner
                 }
-                
+
+            elif marker_id in VisionConfig.TARGETS_MARKER_IDS:
+                # Marker target 
+                targetName = VisionConfig.TARGETS.get(marker_id)
+                # Usa il nuovo metodo per posizionare il target basato sull'orientamento
+                target_pos = self.coords.calculate_target_position_from_marker(
+                    center, corner, offset_distance=VisionConfig.TARGET_OFFSET_DISTANCE, target_side="left"
+                )
+                targets[targetName] = target_pos
+
             elif marker_id in VisionConfig.ARENA_MARKER_IDS:
                 # Marker arena
                 arena_markers[marker_id] = center
-                
+                            
             elif marker_id > 4:
                 # Marker ostacoli (ID > 4)
                 obstacles[marker_id] = center
-        
+                if marker_id in VisionConfig.SLOTS_MARKER_IDS:
+                    # Gli slot sono sia ostacoli che target
+                    slotName = VisionConfig.SLOTS.get(marker_id)
+                    # Usa il nuovo metodo per posizionare il target basato sull'orientamento
+                    target_pos = self.coords.calculate_target_position_from_marker(
+                        center, corner, offset_distance=VisionConfig.TARGET_OFFSET_DISTANCE, target_side="left"
+                    )
+                    targets[slotName] = target_pos
+
         # Processa marker arena
         if len(arena_markers) >= 2:
             result["arena_markers"] = arena_markers
@@ -103,6 +122,9 @@ class VisionSystem:
         
         # Processa ostacoli
         result["obstacles"] = obstacles
+
+        # Processa targets e slots
+        result["targets"] = targets
         
         # Processa robot se trovato e arena valida
         if robot_data and result["arena_valid"]:

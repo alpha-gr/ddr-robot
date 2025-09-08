@@ -78,6 +78,14 @@ class DisplayManager:
                 cv2.putText(overlay_frame, f"OBS{marker_id}", 
                         (center[0] + 15, center[1] + 5), 
                         cv2.FONT_HERSHEY_SIMPLEX, UIConfig.FONT_SCALE, color, UIConfig.FONT_THICKNESS)
+                
+            # Disegna targets
+            for target_name, center in vision_data["targets"].items():
+                color = UIConfig.COLOR_TARGETS
+                cv2.circle(overlay_frame, center, 10, color, 3)
+                cv2.putText(overlay_frame, target_name, 
+                        (center[0] + 12, center[1] + 5), 
+                        cv2.FONT_HERSHEY_SIMPLEX, UIConfig.FONT_SCALE, color, UIConfig.FONT_THICKNESS)
             
             # Disegna robot se trovato
             if vision_data["robot_found"]:
