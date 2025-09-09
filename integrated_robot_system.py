@@ -9,6 +9,7 @@ import math
 import numpy as np
 import time
 import logging
+import traceback
 from typing import Any, Optional, Tuple, Dict
 from datetime import datetime
 
@@ -266,6 +267,7 @@ class IntegratedRobotSystem:
     async def main_loop(self):
         """Loop principale del sistema"""
         self.running = True
+        self.counter = 0  # Contatore per test orientamento
         
         # Setup finestra
         window_name = UIConfig.WINDOW_NAME
@@ -445,6 +447,19 @@ class IntegratedRobotSystem:
                     # Stop immediato (barra spazio)
                     await self.controller.send_manual_command(0.0, 0.0)
                     self.logger.info("⏹️ Stop manuale")
+
+                # controllo per testing orientamento
+                elif key == ord('o'):
+                    if vision_data["robot_found"]:
+                        current_theta = vision_data["robot_theta"]
+                        target_theta = (0.0 + (self.counter * 90)) % 360
+                        self.counter += 1
+                        self.logger.info(f"🔄 Test orientamento: Da {current_theta:.1f}° a {target_theta:.1f}°")
+                        
+                        # Avvia orientamento in background
+                        asyncio.create_task(self.controller.orient_to_angle(target_theta))
+                    else:
+                        self.logger.warning("⚠️ Robot non tracciato, impossibile test orientamento")
                 
                 await asyncio.sleep(1.0 / SystemConfig.UI_UPDATE_RATE)
                 

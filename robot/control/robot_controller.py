@@ -266,7 +266,52 @@ class RobotController:
 
         return joy_x, joy_y
 
-    
+    def calculate_control_output_rotation(self, target_theta: float) -> Tuple[float, float]:
+        """
+        Fa ruotare il robot sul posto fino a raggiungere target_theta (gradi).
+        Restituisce joystick_x, joystick_y:
+        - joystick_y = 0 (fermo)
+        - joystick_x = comando angolare PID per ruotare
+        """
+        if self.robot_state.tracking_lost:
+            return 0.0, 0.0
+
+        # errore angolare (rad)
+        target_angle_rad = math.radians(target_theta)
+        robot_angle_rad = math.radians(self.robot_state.theta)
+        angle_error = target_angle_rad - robot_angle_rad
+
+        # wrap [-pi, pi]
+        while angle_error > math.pi:
+            angle_error -= 2 * math.pi
+        while angle_error < -math.pi:
+            angle_error += 2 * math.pi
+
+        # dt robusto
+        now = time.time()
+        if getattr(self, "last_control_time", None) is None:
+            dt = 1.0 / SystemConfig.CONTROL_LOOP_RATE
+        else:
+            dt = max(1e-6, now - self.last_control_time)
+        self.last_control_time = now
+
+        # PID angolare
+        # intensity = 0 perché non vogliamo muovere avanti/indietro
+        joy_y = 0.0
+        joy_x = self.pid_angle.update(angle_error, dt)
+
+        # saturazione per DDR [-1,1]
+        joy_x = max(-1.0, min(1.0, joy_x))
+
+        # debug
+        self.last_vector_angle = angle_error
+        self.last_joystick_x = joy_x
+        self.last_joystick_y = joy_y
+
+        print(f"x: {joy_x:.2f}")
+
+        return joy_x, joy_y
+
 
     async def control_loop_step(self):
         """Singolo step del loop di controllo"""
@@ -279,7 +324,7 @@ class RobotController:
         # Invia comando al robot
         success = await self.communication.send_movement_command(joystick_x, joystick_y)
     
-        self.logger.info(f"🎮 Comando PID: x={joystick_x:.2f}, y={joystick_y:.2f}")
+        # self.logger.info(f"🎮 Comando PID: x={joystick_x:.2f}, y={joystick_y:.2f}")
 
         # Debug ogni 10 comandi
         if self.control_enabled and hasattr(self, '_debug_counter'):
@@ -303,6 +348,69 @@ class RobotController:
         
         return distance <= self.target_state.tolerance
     
+    def is_at_target_orientation(self, target_theta: float, tolerance_deg: float = 5.0) -> bool:
+        """Verifica se il robot ha raggiunto l'orientamento target"""
+        if self.robot_state.tracking_lost:
+            return False
+            
+        # Calcola errore angolare in gradi
+        angle_error = target_theta - self.robot_state.theta
+        
+        # Normalizza errore in [-180, 180]
+        while angle_error > 180:
+            angle_error -= 360
+        while angle_error < -180:
+            angle_error += 360
+            
+        return abs(angle_error) <= tolerance_deg
+    
+    async def orient_to_angle(self, target_theta: float, timeout: float = 15.0) -> bool:
+        """
+        Fa ruotare il robot sul posto fino a raggiungere target_theta (gradi)
+        
+        Args:
+            target_theta: Angolo target in gradi [0-360]
+            timeout: Timeout in secondi
+            
+        Returns:
+            bool: True se orientamento raggiunto con successo
+        """
+        self.control_enabled = True
+        start_time = time.time()
+        
+        # Reset PID per nuovo orientamento
+        self.pid_angle.reset()
+        
+        self.logger.info(f"🔄 Iniziando orientamento verso {target_theta:.1f}°")
+
+        try:
+            while time.time() - start_time < timeout:
+                # Calcola controllo rotazione ad ogni iterazione
+                joystick_x, joystick_y = self.calculate_control_output_rotation(target_theta)
+                
+                # Invia comando direttamente (bypassando control_loop_step che usa calculate_control_output normale)
+                if self.communication.is_connected():
+                    await self.communication.send_movement_command(joystick_x, joystick_y)
+                
+                # Verifica se orientamento raggiunto
+                if self.is_at_target_orientation(target_theta):
+                    self.logger.info(f"✅ Orientamento raggiunto: {target_theta:.1f}°")
+                    await self.stop()
+                    return True
+                    
+                await asyncio.sleep(1.0 / SystemConfig.CONTROL_LOOP_RATE)
+                
+        except Exception as e:
+            self.logger.error(f"Errore durante orientamento: {e}")
+            await self.emergency_stop()
+            return False
+            
+        # Timeout raggiunto
+        self.logger.warning(f"⏰ Timeout raggiunto durante orientamento: {target_theta:.1f}°")
+        await self.stop()
+        return False
+
+
     async def go_to_position(self, x: float, y: float, timeout: float = 30.0) -> bool:
         """
         Muove il robot verso una posizione specifica
