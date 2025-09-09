@@ -117,27 +117,27 @@ class DisplayManager:
                     cv2.arrowedLine(overlay_frame, (robot_screen_x, robot_screen_y), (end_x, end_y), (0, 0, 255), 3)
                     
                     # DISEGNA VETTORE DI CONTROLLO (viola)
-                    vector_info = self.controller.get_vector_info()
-                    if vector_info["control_enabled"] and vector_info["intensity"] > 0.01:
-                        # Converti angolo vettore dal sistema robot al sistema mondo
-                        # Il vettore è nel sistema robot, quindi aggiungi l'orientamento del robot
-                        vector_world_angle = theta_rad + vector_info["angle_rad"]
+                    joystick_info = self.controller.get_joystick_info()
+                    if joystick_info["joystick_x"] != 0 or joystick_info["joystick_y"] != 0:
+                        # Calcola lunghezza del vettore (max 50 pixel)
+                        vector_length = int(50 * math.sqrt(joystick_info["joystick_x"]**2 + joystick_info["joystick_y"]**2))
                         
-                        # Scala lunghezza in base all'intensità (max 50 pixel)
-                        vector_length = min(vector_info["intensity"] * 100, 50)
+                        # Calcola angolo del vettore nel sistema robot
+                        robot_vector_angle = math.atan2(joystick_info["joystick_y"], joystick_info["joystick_x"])
                         
-                        # Calcola punto finale del vettore
-                        vector_end_x = int(robot_screen_x + vector_length * np.cos(vector_world_angle))
-                        vector_end_y = int(robot_screen_y + vector_length * np.sin(vector_world_angle))
+                        # ROTAZIONE 90°: Aggiungi π/2 radianti (90 gradi)
+                        robot_vector_angle += math.pi / 2
+                        
+                        # Trasforma l'angolo dal sistema robot al sistema mondo
+                        world_vector_angle = theta_rad + robot_vector_angle
+                        
+                        # Calcola punto finale (stesso sistema coordinate della freccia rossa)
+                        vector_end_x = int(robot_screen_x + vector_length * - np.cos(world_vector_angle))
+                        vector_end_y = int(robot_screen_y + vector_length * - np.sin(world_vector_angle))
                         
                         # Disegna vettore viola
                         cv2.arrowedLine(overlay_frame, (robot_screen_x, robot_screen_y), 
                                     (vector_end_x, vector_end_y), UIConfig.COLOR_VECTOR, 2, tipLength=0.3)
-                        
-                        # Aggiungi testo con intensità
-                        cv2.putText(overlay_frame, f"v={vector_info['intensity']:.2f}", 
-                                (vector_end_x + 5, vector_end_y - 5),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, UIConfig.COLOR_VECTOR, 1)
             
             # Disegna target basato sulla modalità
             if self.system.follow_mouse_mode:
@@ -214,16 +214,12 @@ class DisplayManager:
                 f"theta: {vision_data['robot_theta']:.0f}"
             ])
             
-            # Aggiungi informazioni vettore di controllo
-            vector_info = self.controller.get_vector_info()
-            if vector_info["control_enabled"]:
-                vector_angle_deg = math.degrees(vector_info["angle_rad"])
-                info_lines.extend([
-                    f"--- VETTORE CONTROLLO ---",
-                    f"Intensità: {vector_info['intensity']:.3f}",
-                    f"Angolo: {vector_angle_deg:.1f}°",
-                    f"Distanza: {vector_info['distance']:.1f}"
-                ])
+            # Aggiungi informazioni sul joystick
+            joystick_info = self.controller.get_joystick_info()
+            info_lines.append(f"Joy X: {joystick_info['joystick_x']:.2f}")
+            info_lines.append(f"Joy Y: {joystick_info['joystick_y']:.2f}")
+
+
         # Informazioni target basate sulla modalità
         if self.system.follow_mouse_mode:
             if self.system.current_mouse_pos and vision_data["robot_found"]:

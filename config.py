@@ -76,17 +76,17 @@ class ControlConfig:
     # D: if you’re getting close to where you want to be, slow down.
 
     # Forward
-    PID_FORWARD_KP = 1   # Risposta rapida alle distanze
-    PID_FORWARD_KI = 0.0  # Elimina errori di posizionamento
-    PID_FORWARD_KD = 0.0   # Smorzamento overshoot
+    PID_FORWARD_KP = 1  
+    PID_FORWARD_KI = 0.1
+    PID_FORWARD_KD = 0.2
 
     # Lateral  
-    PID_LATERAL_KP = 0.4   # Correzione angolare immediata
-    PID_LATERAL_KI = 0.005  # Correzione derive/bias
-    PID_LATERAL_KD = 0.4  # Stabilità rotazioni
+    PID_LATERAL_KP = 0.4   
+    PID_LATERAL_KI = 0.005  
+    PID_LATERAL_KD = 0.4  
 
     # Limiti controllo
-    MAX_SPEED = 1 
+    MAX_SPEED = 0.8 
     
     # Controllo vettoriale
     VECTOR_DISTANCE_SCALE = 10.0

@@ -107,14 +107,14 @@ class RobotController:
         self.last_control_time = 0.0
         self.tracking_lost_count = 0
         
-        # Filtro per smoothing velocità angolare (anti-oscillazione)
-        self.last_angular_speed = 0.0
-        self.angular_smooth_factor = 0.7  # Fattore di smoothing [0-1]
-        
         # Variabili per debug e visualizzazione vettore
         self.last_vector_intensity = 0.0
         self.last_vector_angle = 0.0  # In radianti, sistema robot
         self.last_target_distance = 0.0
+
+        # Ultimi comandi joystick inviati
+        self.last_joystick_x = 0.0
+        self.last_joystick_y = 0.0
         
         # Logger
         self.logger = logging.getLogger(__name__)
@@ -123,7 +123,8 @@ class RobotController:
         self.communication.on_connected = self._on_robot_connected
         self.communication.on_disconnected = self._on_robot_disconnected
         self.communication.on_error = self._on_robot_error
-    
+
+
     async def initialize(self) -> bool:
         """Inizializza il controller e la connessione"""
         self.logger.info("Inizializzando robot controller...")
@@ -170,13 +171,10 @@ class RobotController:
         # Reset PID per nuovo target
         self.pid_forward.reset()
         self.pid_lateral.reset()
-        
-        # Reset anche filtro smoothing angolare
-        self.last_angular_speed = 0.0
     
     def calculate_control_output(self) -> Tuple[float, float]:
         """
-        Calcola output di controllo usando PID
+        Calcola output di controllo usando PID in formato polare
         Output: x,y come coordinate JOYSTICK per robot
         """
         if self.robot_state.tracking_lost:
@@ -198,50 +196,44 @@ class RobotController:
         
         # === CONTROLLO PID ===
         
-        # 1. PID FORWARD: controlla intensità movimento (errore di distanza)
-        distance_error = distance
-        forward_output = self.pid_forward.update(distance_error, dt)
+        # 1. PID FORWARD: controlla intensità del controllo
+        # Calcola componente del vettore target nella direzione robot
+        target_angle_rad = math.atan2(error_y, error_x)
+        robot_angle_rad = math.radians(self.robot_state.theta)
         
-        # 2. PID LATERAL: controlla orientamento verso target
-        # Calcola angolo desiderato verso target (in gradi)
-        target_angle_deg = math.degrees(math.atan2(error_y, error_x))
+        # Errore angolare verso target (in radianti)
+        angle_error_rad = target_angle_rad - robot_angle_rad
+        while angle_error_rad > math.pi: 
+            angle_error_rad -= 2 * math.pi
+        while angle_error_rad < -math.pi: 
+            angle_error_rad += 2 * math.pi
         
-        # Errore angolare (normalizzato a [-180, +180])
-        angle_error = target_angle_deg - self.robot_state.theta
-        while angle_error > 180: 
-            angle_error -= 360
-        while angle_error < -180: 
-            angle_error += 360
+        # Componente forward: quanto il target è "davanti" al robot
+        forward_component = distance * math.cos(angle_error_rad)
+        # Scala per PID
+        forward_error_scaled = forward_component / ControlConfig.VECTOR_DISTANCE_SCALE
+        joystick_y = self.pid_forward.update(forward_error_scaled, dt)
         
-        lateral_output = self.pid_lateral.update(angle_error, dt)
-        
-        # === CONVERSIONE A COORDINATE JOYSTICK ===
-        
-        # Forward: movimento in avanti/indietro (joystick Y)
-        joystick_y = forward_output
-        
-        # Lateral: rotazione/movimento laterale (joystick X)
-        # Per un robot differenziale, l'errore angolare si traduce in rotazione
-        joystick_x = lateral_output
+        # 2. PID LATERAL: controlla angolo del controllo
+        # Componente laterale: quanto il target è "a lato" del robot  
+        lateral_component = distance * math.sin(angle_error_rad)
+        # Scala per PID
+        lateral_error_scaled = lateral_component / ControlConfig.VECTOR_DISTANCE_SCALE
+        joystick_x = self.pid_lateral.update(lateral_error_scaled, dt)
         
         # Applica limiti di saturazione
         max_speed = ControlConfig.MAX_SPEED
         joystick_x = max(-max_speed, min(max_speed, joystick_x))
         joystick_y = max(-max_speed, min(max_speed, joystick_y))
         
-        # Saturazione globale: se la somma supera il limite, scala proporzionalmente
-        max_combined = max(abs(joystick_x), abs(joystick_y))
-        if max_combined > max_speed:
-            scale_factor = max_speed / max_combined
-            joystick_x *= scale_factor
-            joystick_y *= scale_factor
-        
         # SALVA INFORMAZIONI per visualizzazione
-        self.last_vector_intensity = abs(forward_output)
-        self.last_vector_angle = math.radians(angle_error)  # Errore angolare in radianti
+        self.last_vector_intensity = math.sqrt(joystick_x**2 + joystick_y**2)
+        self.last_vector_angle = angle_error_rad  # Errore angolare in radianti
         self.last_target_distance = distance
+        self.last_joystick_x = joystick_x
+        self.last_joystick_y = joystick_y
 
-        return joystick_x, joystick_y  # X=laterale, Y=avanti
+        return joystick_x, joystick_y
     
     async def control_loop_step(self):
         """Singolo step del loop di controllo"""
@@ -253,6 +245,8 @@ class RobotController:
 
         # Invia comando al robot
         success = await self.communication.send_movement_command(joystick_x, joystick_y)
+    
+        self.logger.info(f"🎮 Comando PID: x={joystick_x:.2f}, y={joystick_y:.2f}")
 
         # Debug ogni 10 comandi
         if self.control_enabled and hasattr(self, '_debug_counter'):
@@ -357,6 +351,13 @@ class RobotController:
             "angle_rad": getattr(self, 'last_vector_angle', 0.0),
             "distance": getattr(self, 'last_target_distance', 0.0),
             "control_enabled": self.control_enabled
+        }
+    
+    def get_joystick_info(self) -> Dict:
+        """Ritorna ultimi comandi joystick inviati"""
+        return {
+            "joystick_x": self.last_joystick_x,
+            "joystick_y": self.last_joystick_y
         }
     
     def get_status(self) -> Dict:
