@@ -116,28 +116,35 @@ class DisplayManager:
                     end_y = int(robot_screen_y + 30 * np.sin(theta_rad))
                     cv2.arrowedLine(overlay_frame, (robot_screen_x, robot_screen_y), (end_x, end_y), (0, 0, 255), 3)
                     
-                    # DISEGNA VETTORE DI CONTROLLO (viola)
+                    # --- DISEGNA VETTORE DI CONTROLLO (viola) ---
                     joystick_info = self.controller.get_joystick_info()
-                    if joystick_info["joystick_x"] != 0 or joystick_info["joystick_y"] != 0:
-                        # Calcola lunghezza del vettore (max 50 pixel)
-                        vector_length = int(50 * math.sqrt(joystick_info["joystick_x"]**2 + joystick_info["joystick_y"]**2))
-                        
-                        # Calcola angolo del vettore nel sistema robot
-                        robot_vector_angle = math.atan2(joystick_info["joystick_y"], joystick_info["joystick_x"])
-                        
-                        # ROTAZIONE 90°: Aggiungi π/2 radianti (90 gradi)
-                        robot_vector_angle += math.pi / 2
-                        
-                        # Trasforma l'angolo dal sistema robot al sistema mondo
+                    jx, jy = joystick_info["joystick_x"], joystick_info["joystick_y"]
+
+                    if abs(jx) > 1e-6 or abs(jy) > 1e-6:
+                        # lunghezza max 50 px
+                        vector_length = int(50 * math.hypot(jx, jy))
+
+                        # angolo joystick (frame robot): y=avanti, x=destra
+                        robot_vector_angle = math.atan2(jx, jy)   # NB: invertito ordine -> avanti = 0 rad
+
+                        # portiamo nel frame mondo
                         world_vector_angle = theta_rad + robot_vector_angle
-                        
-                        # Calcola punto finale (stesso sistema coordinate della freccia rossa)
-                        vector_end_x = int(robot_screen_x + vector_length * - np.cos(world_vector_angle))
-                        vector_end_y = int(robot_screen_y + vector_length * - np.sin(world_vector_angle))
-                        
-                        # Disegna vettore viola
-                        cv2.arrowedLine(overlay_frame, (robot_screen_x, robot_screen_y), 
-                                    (vector_end_x, vector_end_y), UIConfig.COLOR_VECTOR, 2, tipLength=0.3)
+
+                        # endpoint in coordinate schermo (OpenCV: y cresce verso il basso)
+                        vector_end_x = int(robot_screen_x + vector_length * np.cos(world_vector_angle))
+                        vector_end_y = int(robot_screen_y + vector_length * np.sin(world_vector_angle))
+
+                        # disegna
+                        cv2.arrowedLine(
+                            overlay_frame,
+                            (robot_screen_x, robot_screen_y),
+                            (vector_end_x, vector_end_y),
+                            UIConfig.COLOR_VECTOR,
+                            2,
+                            tipLength=0.3
+                        )
+
+
             
             # Disegna target basato sulla modalità
             if self.system.follow_mouse_mode:

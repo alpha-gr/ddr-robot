@@ -75,25 +75,29 @@ class ControlConfig:
     # I: if you haven’t been where you want to be for a long time, get there faster.
     # D: if you’re getting close to where you want to be, slow down.
 
-    # Forward
-    PID_FORWARD_KP = 1  
-    PID_FORWARD_KI = 0.1
-    PID_FORWARD_KD = 0.2
+    # Intentity
+    PID_INTENSITY_KP = 0.9
+    PID_INTENSITY_KI = 0.1
+    PID_INTENSITY_KD = 0.3
 
-    # Lateral  
-    PID_LATERAL_KP = 0.4   
-    PID_LATERAL_KI = 0.005  
-    PID_LATERAL_KD = 0.4  
+    # Angle
+    PID_ANGLE_KP = 0.8   
+    PID_ANGLE_KI = 0.07
+    PID_ANGLE_KD = 0.5
+
+    # Deadband per evitare jitter
+    ANGLE_DEADBAND = 0.08
 
     # Limiti controllo
     MAX_SPEED = 0.8 
+    MIN_SPEED = 0.2 # più lento di così e il robot fatica a muoversi
     
     # Controllo vettoriale
     VECTOR_DISTANCE_SCALE = 10.0
     
     # Tolleranze
-    POSITION_TOLERANCE = 3.0  # Aumentato da 2.0 - meno preciso ma più stabile
-    ANGLE_TOLERANCE = 10.0    # Aumentato da 5.0 - meno oscillazioni angolari
+    POSITION_TOLERANCE = 4.0  # Aumentato da 2.0 - meno preciso ma più stabile
+    ANGLE_TOLERANCE = 5.0    # Aumentato da 5.0 - meno oscillazioni angolari
     
     # Safety
     BOUNDARY_MARGIN = 5.0     # Margine dai bordi arena (unità arena)

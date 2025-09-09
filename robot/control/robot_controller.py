@@ -88,17 +88,17 @@ class RobotController:
         self.communication = RobotCommunication()
         
         # Controllori PID
-        self.pid_forward = PIDController(
-            ControlConfig.PID_FORWARD_KP,
-            ControlConfig.PID_FORWARD_KI, 
-            ControlConfig.PID_FORWARD_KD,
+        self.pid_intensity = PIDController(
+            ControlConfig.PID_INTENSITY_KP,
+            ControlConfig.PID_INTENSITY_KI, 
+            ControlConfig.PID_INTENSITY_KD,
             ControlConfig.MAX_SPEED
         )
         
-        self.pid_lateral = PIDController(
-            ControlConfig.PID_LATERAL_KP,
-            ControlConfig.PID_LATERAL_KI,
-            ControlConfig.PID_LATERAL_KD, 
+        self.pid_angle = PIDController(
+            ControlConfig.PID_ANGLE_KP,
+            ControlConfig.PID_ANGLE_KI,
+            ControlConfig.PID_ANGLE_KD, 
             ControlConfig.MAX_SPEED
         )
         
@@ -169,72 +169,105 @@ class RobotController:
         self.logger.info(f"Nuovo target: ({self.target_state.x:.1f}, {self.target_state.y:.1f}, {self.target_state.theta:.1f}°)")
         
         # Reset PID per nuovo target
-        self.pid_forward.reset()
-        self.pid_lateral.reset()
+        self.pid_intensity.reset()
+        self.pid_angle.reset()
     
     def calculate_control_output(self) -> Tuple[float, float]:
         """
-        Calcola output di controllo usando PID in formato polare
-        Output: x,y come coordinate JOYSTICK per robot
+        Esegue PID in coordinate polari.
+        Ritorna: (joystick_x, joystick_y)
+        - joystick_y: avanti=+1, indietro=-1
+        - joystick_x: destra=+1, sinistra=-1
+        Internamente:
+        - intensity_cmd: ampiezza [-1,1]
+        - angle_cmd: angolo in radianti (frame robot, 0 = avanti, +dx = destra)
         """
         if self.robot_state.tracking_lost:
             return 0.0, 0.0
-            
-        # Calcola vettore verso target
-        error_x = self.target_state.x - self.robot_state.x
-        error_y = self.target_state.y - self.robot_state.y
-        distance = math.sqrt(error_x**2 + error_y**2)
-        
-        # Se già al target, ferma
+
+        # vettore verso target (world)
+        ex = self.target_state.x - self.robot_state.x
+        ey = self.target_state.y - self.robot_state.y
+        distance = math.hypot(ex, ey)
+
         if distance < self.target_state.tolerance:
             return 0.0, 0.0
-        
-        # Calcola delta tempo per PID
-        current_time = time.time()
-        dt = current_time - self.last_control_time if self.last_control_time > 0 else 1.0/SystemConfig.CONTROL_LOOP_RATE
-        self.last_control_time = current_time
-        
-        # === CONTROLLO PID ===
-        
-        # 1. PID FORWARD: controlla intensità del controllo
-        # Calcola componente del vettore target nella direzione robot
-        target_angle_rad = math.atan2(error_y, error_x)
-        robot_angle_rad = math.radians(self.robot_state.theta)
-        
-        # Errore angolare verso target (in radianti)
-        angle_error_rad = target_angle_rad - robot_angle_rad
-        while angle_error_rad > math.pi: 
-            angle_error_rad -= 2 * math.pi
-        while angle_error_rad < -math.pi: 
-            angle_error_rad += 2 * math.pi
-        
-        # Componente forward: quanto il target è "davanti" al robot
-        forward_component = distance * math.cos(angle_error_rad)
-        # Scala per PID
-        forward_error_scaled = forward_component / ControlConfig.VECTOR_DISTANCE_SCALE
-        joystick_y = self.pid_forward.update(forward_error_scaled, dt)
-        
-        # 2. PID LATERAL: controlla angolo del controllo
-        # Componente laterale: quanto il target è "a lato" del robot  
-        lateral_component = distance * math.sin(angle_error_rad)
-        # Scala per PID
-        lateral_error_scaled = lateral_component / ControlConfig.VECTOR_DISTANCE_SCALE
-        joystick_x = self.pid_lateral.update(lateral_error_scaled, dt)
-        
-        # Applica limiti di saturazione
-        max_speed = ControlConfig.MAX_SPEED
-        joystick_x = max(-max_speed, min(max_speed, joystick_x))
-        joystick_y = max(-max_speed, min(max_speed, joystick_y))
-        
-        # SALVA INFORMAZIONI per visualizzazione
-        self.last_vector_intensity = math.sqrt(joystick_x**2 + joystick_y**2)
-        self.last_vector_angle = angle_error_rad  # Errore angolare in radianti
-        self.last_target_distance = distance
-        self.last_joystick_x = joystick_x
-        self.last_joystick_y = joystick_y
 
-        return joystick_x, joystick_y
+        # dt robusto
+        now = time.time()
+        if getattr(self, "last_control_time", None) is None:
+            dt = 1.0 / SystemConfig.CONTROL_LOOP_RATE
+        else:
+            dt = max(1e-6, now - self.last_control_time)
+        self.last_control_time = now
+
+        # angoli (world -> robot frame)
+        target_angle = math.atan2(ey, ex)               # rad
+        robot_angle = math.radians(self.robot_state.theta)
+        angle_error = target_angle - robot_angle
+        # wrap in [-pi, pi]
+        while angle_error > math.pi:
+            angle_error -= 2 * math.pi
+        while angle_error < -math.pi:
+            angle_error += 2 * math.pi
+
+        # -------------------------
+        # INTENSITY (radiale signed)
+        # -------------------------
+        intensity_error = distance / ControlConfig.VECTOR_DISTANCE_SCALE
+        intensity_cmd = self.pid_intensity.update(intensity_error, dt)
+
+        # -------------------------
+        # ANGLE (angolare in radianti)
+        # -------------------------
+        # Qui passo direttamente l'errore angolare (rad) al PID
+        angle_cmd = self.pid_angle.update(angle_error, dt)
+
+        # -------------------------
+        # saturazione
+        # -------------------------
+        intensity_cmd = max(-1.0, min(1.0, intensity_cmd))
+        # clamp dell’angolo opzionale (es. ±pi) se il tuo PID lo supera
+        if angle_cmd > math.pi:
+            angle_cmd = math.pi
+        elif angle_cmd < -math.pi:
+            angle_cmd = -math.pi
+
+        # -------------------------
+        # Conversione polare -> joystick
+        # -------------------------
+        # --- decisione "rotate in place" ---
+        # Applica limiti di sicurezza
+        max_speed = ControlConfig.MAX_SPEED
+        min_speed = ControlConfig.MIN_SPEED
+
+        if abs(angle_error) > math.radians(45):  # soglia configurabile
+            # rotazione sul posto
+            joy_x = 1.0 * max_speed if angle_error > 0 else -1.0 * max_speed
+            joy_y = 0.0
+        else:
+            # normale conversione polare -> joystick
+            joy_x = intensity_cmd * math.sin(angle_cmd)
+            joy_y = intensity_cmd * math.cos(angle_cmd)
+
+
+        # Clamp forward motion
+        if abs(joy_y) > max_speed:
+            joy_y = max_speed if joy_y > 0 else -max_speed
+        elif abs(joy_y) < min_speed and joy_y != 0:
+            joy_y = min_speed if joy_y > 0 else -min_speed
+
+        # SALVATAGGIO per debug/visual
+        self.last_vector_intensity = intensity_cmd
+        self.last_vector_angle = angle_cmd     # in radianti
+        self.last_target_distance = distance
+        self.last_joystick_x = joy_x
+        self.last_joystick_y = joy_y
+
+        return joy_x, joy_y
+
     
+
     async def control_loop_step(self):
         """Singolo step del loop di controllo"""
         if not self.control_enabled or not self.communication.is_connected():
