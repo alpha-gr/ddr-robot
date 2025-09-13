@@ -106,6 +106,9 @@ class ControlConfig:
     # Calibrazione manuale
     MANUAL_LINEAR_SPEED = 0.3   # Velocità lineare per controlli manuali
     MANUAL_ANGULAR_SPEED = 0.4  # Velocità angolare per controlli manuali
+
+    # Angolo che attiva la rotazione totale
+    ANGLE_FULL_ROTATION = 100    # Gradi
     
 
 class PathfindingConfig:
@@ -125,8 +128,8 @@ class PathfindingConfig:
     # Ottimizzazione percorso - CONFIGURATE per più punti
     ENABLE_PATH_SMOOTHING = False
     SMOOTHING_ITERATIONS = 1         
-    MIN_WAYPOINT_DISTANCE = 5.0      
-    MAX_WAYPOINT_DISTANCE = 10.0     
+    MIN_WAYPOINT_DISTANCE = 0     
+    MAX_WAYPOINT_DISTANCE = 20.0     
     
     # Vincoli di navigazione
     MAX_PATH_LENGTH = 10000          
@@ -136,7 +139,7 @@ class PathfindingConfig:
     PATHFINDING_RECALC_DISTANCE = 3.0 # Distanza minima cambiamento posizione robot per ricalcolo
     
     # Waypoint dinamico per controllo fluido
-    DYNAMIC_WAYPOINT_RADIUS = 15.0   # Distanza avanti al robot per waypoint dinamico
+    DYNAMIC_WAYPOINT_RADIUS = 20.0   # Distanza avanti al robot per waypoint dinamico
     MIN_ADVANCE_DISTANCE = 2.0       # Distanza minima per avanzare lungo il percorso
     WAYPOINT_SMOOTHING = 0.8         # Fattore smoothing per movimento waypoint (0-1)
 
@@ -144,7 +147,8 @@ class PathfindingConfig:
 class CommunicationConfig:
     """Configurazione comunicazione"""
     # WebSocket settings - CONFIGURARE CON IP RASPBERRY PI REALE
-    WS_HOST = "192.168.1.9"
+    # WS_HOST = "192.168.1.9"
+    WS_HOST = "10.178.172.149"
     WS_PORT = 8765
     WS_TIMEOUT = 1.0          # Timeout connessione
     

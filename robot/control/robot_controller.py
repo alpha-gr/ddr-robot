@@ -241,7 +241,7 @@ class RobotController:
         max_speed = ControlConfig.MAX_SPEED
         min_speed = ControlConfig.MIN_SPEED
 
-        if abs(angle_error) > math.radians(45):  # soglia configurabile
+        if abs(angle_error) > math.radians(ControlConfig.ANGLE_FULL_ROTATION):  # soglia configurabile
             # rotazione sul posto
             joy_x = 1.0 * max_speed if angle_error > 0 else -1.0 * max_speed
             joy_y = 0.0

@@ -530,11 +530,11 @@ class AStarPathfinder:
         return []  # Nessun percorso trovato
     
     def _heuristic(self, a: Tuple[int, int], b: Tuple[int, int]) -> float:
-        """Euristica Manhattan con bias diagonale per A*"""
+        """Euristica con bias diagonale per A*"""
         dx = abs(a[0] - b[0])
         dy = abs(a[1] - b[1])
         
-        # Distanza Manhattan con fattore diagonale
+        # Distanza con fattore diagonale
         return PathfindingConfig.STRAIGHT_COST * (dx + dy) + \
                (PathfindingConfig.DIAGONAL_COST - 2 * PathfindingConfig.STRAIGHT_COST) * min(dx, dy)
     
