@@ -1,64 +1,66 @@
-# Differential Drive Robot a Controllo Remoto
+# Differential Drive Robot with Remote Control
 
-## Descrizione
-Questo progetto realizza un **Differential Drive Robot (DDR) fisico** integrato con il sistema *cargoservice*,
-originariamente sviluppato per l’esame di Ingegneria dei Sistemi Software.  
-L’obiettivo è sostituire il Virtual Robot utilizzato in fase di sviluppo con un robot reale, mantenendo la compatibilità con il modello di comunicazione esistente.
+## Description
+This project implements a **physical Differential Drive Robot (DDR)** integrated with the *cargoservice* system, originally developed for the course Ingengeria dei Sistemi Software at Alma Mater Studiorum - Università di Bologna.  
+The goal is to replace the Virtual Robot used in development with a real robot while keeping compatibility with the existing communication model.
 
-## Relazione di progetto
-La relazione completa del progetto è disponibile [qui](./userDocs/relazione.pdf).
+## Project report
+The full project report (in Italian) is available [here](./userDocs/relazione.pdf).
 
-## Architettura del sistema
-Il sistema si compone di tre macro-componenti software principali:
+## System architecture
+The system is composed of three main software macro-components:
 
-1. **Sistema di controllo locale**  
-   - Eseguito a bordo del robot (Raspberry Pi).  
-   - Riceve comandi via WebSocket e gestisce l’attuazione dei motori tramite L298.  
-   - Supporta comandi di movimento base (`forward`, `backward`, `left`, `right`, `stop`) con controllo PWM.
+1. **Local control system**  
+   - Runs onboard the robot (Raspberry Pi).  
+   - Receives commands via WebSocket and manages motor actuation through an L298 driver.  
+   - Supports basic movement commands (`forward`, `backward`, `left`, `right`, `stop`) with PWM speed control.
 
-2. **Sistema di controllo centrale**  
-   - Coordina e supervisiona il robot.  
-   - Monitora posizione e orientamento tramite **fiducial markers ArUco** e una telecamera overhead.  
-   - Implementa pathfinding (A* con euristica octile distance) e controllo PID per movimenti precisi.
+2. **Central control system**  
+   - Coordinates and supervises the robot.  
+   - Monitors position and orientation using **ArUco fiducial markers** and an overhead camera.  
+   - Implements pathfinding (A* algorithm) and PID control for precise movements.
 
-3. **Attore QAK**  
-   - Middleware di integrazione con *cargoservice*.  
-   - Traduce comandi ad alto livello (`engage`, `moverobot`, `pickUpCargo`, …) in messaggi WebSocket JSON.  
-   - Mantiene la compatibilità con il protocollo usato dal modulo `basicrobot`.
+3. **QAK actor**  
+   - Integration middleware with *cargoservice*.  
+   - Translates high-level commands (`engage`, `moverobot`, `pickUpCargo`, …) into JSON WebSocket messages.  
+   - Preserves compatibility with the protocol used by the `basicrobot` module.
 
-## Comunicazione
-- **Trasporto:** WebSocket  
-- **Formato messaggi:** JSON  
-- **Esempi di comandi inviati dal client al server:**
+## Communication
+- **Transport:** WebSocket  
+- **Message format:** JSON  
+- **Example commands sent from client to server:**
   ```json
   { "command": "engage" }
   { "command": "disengage" }
   { "command": "movetosquare", "x": 1, "y": 2 }
-  ```
-- **Risposte del server:**
+
+* **Server replies:**
+
   ```json
   { "status": "success", "message": "..." }
-  { "status": "error", "message": "descrizione" }
+  { "status": "error", "message": "description" }
   ```
-- **Evento asincrono di completamento movimento:**
+* **Asynchronous movement-completion event:**
+
   ```json
   { "command": "moverobotdone", "movement_id": "id", "status": "success" }
   ```
 
 ## Hardware
-- Telaio robotico con due motori DC + ruota pivotante.  
-- Driver motori **L298**.  
-- **Raspberry Pi 3B** per controllo e networking.  
-- Powerbank USB per alimentazione Raspberry Pi.  
-- Telecamera overhead per rilevamento marker ArUco.
+
+* Robot chassis with two DC geared motors + caster wheel.
+* Motor driver: **L298**.
+* **Raspberry Pi 3B** for control and networking.
+* USB powerbank to power the Raspberry Pi.
+* Overhead camera for ArUco marker detection.
 
 ---
 
-## 🏗️ Architettura del Sistema
+## 🏗️ System Architecture
 
 ```
 ┌─────────────────┐    WebSocket    ┌──────────────────┐
-│   PC Controllo  │◄──────────────► │   Raspberry Pi   │
+│   Control PC    │◄──────────────► │   Raspberry Pi   │
 │                 │                 │                  │
 │ ┌─────────────┐ │                 │ ┌──────────────┐ │
 │ │Vision System│ │                 │ │Motor Control │ │
@@ -77,7 +79,7 @@ Il sistema si compone di tre macro-componenti software principali:
 └─────────────────┘                 └──────────────────┘
 ```
 
-## Interfaccia Utente
+## User Interface
 
-Screenshot dell'interfaccia utente:
+UI screenshot:
 ![UI Screenshot](./userDocs/UI.png)
