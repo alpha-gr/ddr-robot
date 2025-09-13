@@ -1,4 +1,4 @@
-# Differential Drive Robot with Remote Control
+# Remote Controlled Differential Drive Robot - RCDDR
 
 ## Description
 This project implements a **physical Differential Drive Robot (DDR)** integrated with the *cargoservice* system, originally developed for the course Ingengeria dei Sistemi Software at Alma Mater Studiorum - Università di Bologna.  
