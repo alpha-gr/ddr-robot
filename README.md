@@ -76,3 +76,8 @@ Il sistema si compone di tre macro-componenti software principali:
 │ └─────────────┘ │                 │                  │
 └─────────────────┘                 └──────────────────┘
 ```
+
+## Interfaccia Utente
+
+Screenshot dell'interfaccia utente:
+![UI Screenshot](./userDocs/UI.png)
