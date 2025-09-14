@@ -169,8 +169,8 @@ class RobotController:
         self.logger.info(f"Nuovo target: ({self.target_state.x:.1f}, {self.target_state.y:.1f}, {self.target_state.theta:.1f}°)")
         
         # Reset PID per nuovo target
-        self.pid_intensity.reset()
-        self.pid_angle.reset()
+        # self.pid_intensity.reset()
+        # self.pid_angle.reset()
     
     def calculate_control_output(self) -> Tuple[float, float]:
         """

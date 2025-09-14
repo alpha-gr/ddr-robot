@@ -208,8 +208,8 @@ class DisplayManager:
             f"Obstacles: {len(vision_data['obstacles'])}",
             f"Robot: {'OK' if vision_data['robot_found'] else 'LOST'}",
             f"Control: {'ON' if self.controller.control_enabled else 'OFF'}",
-            f"Mode: {'🐭 FOLLOW' if self.system.follow_mouse_mode else '🎯 TARGET'}",
-            f"Navigation: {'🗺️ PATHFINDING' if self.system.pathfinding_mode else '➡️ DIRECT'}",
+            f"Mode: {'FOLLOW' if self.system.follow_mouse_mode else 'TARGET'}",
+            f"Navigation: {'PATHFINDING' if self.system.pathfinding_mode else 'DIRECT'}",
             "--- CALIBRAZIONE ---",
             "WASD per muoversi",
             "SPACE per fermarsi"
@@ -235,7 +235,7 @@ class DisplayManager:
                 error_y = self.system.current_mouse_pos[1] - vision_data["robot_y"]
                 distance = math.sqrt(error_x**2 + error_y**2)
                 info_lines.append(f"Mouse: ({self.system.current_mouse_pos[0]:.1f}, {self.system.current_mouse_pos[1]:.1f})")
-                info_lines.append(f"Dist: {distance:.1f} unità")
+                info_lines.append(f"Dist: {distance:.1f} units")
             elif self.system.current_mouse_pos:
                 info_lines.append(f"Mouse: ({self.system.current_mouse_pos[0]:.1f}, {self.system.current_mouse_pos[1]:.1f})")
                 info_lines.append("Dist: ? (robot perso)")
