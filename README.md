@@ -79,7 +79,7 @@ The system is composed of three main software macro-components:
 └─────────────────┘                 └──────────────────┘
 ```
 
-## User Interface
+## 📽️ Video demo
 
-UI screenshot:
-![UI Screenshot](./userDocs/UI.png)
+Video demonstration on YouTube:
+[![Video Demo](https://i.ytimg.com/vi/ISuBqWeXoqY/maxresdefault.jpg)](https://www.youtube.com/watch?v=ISuBqWeXoqY)
