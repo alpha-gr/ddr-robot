@@ -71,8 +71,8 @@ class Basicrobot ( name: String, scope: CoroutineScope, isconfined: Boolean=fals
 				}	 
 				state("doDisengage") { //this:State
 					action { //it:State
-						 robotclient.disengage()  
 						CommUtils.outblack("basicrobot | disengaging")
+						 robotclient.disengage()  
 						//genTimer( actor, state )
 					}
 					//After Lenzi Aug2002
@@ -84,10 +84,27 @@ class Basicrobot ( name: String, scope: CoroutineScope, isconfined: Boolean=fals
 					action { //it:State
 						if( checkMsgContent( Term.createTerm("moverobot(TARGETX,TARGETY)"), Term.createTerm("moverobot(TARGETX,TARGETY)"), 
 						                        currentMsg.msgContent()) ) { //set msgArgList
+								CommUtils.outblack("basicrobot | moving")
+								 var X = payloadArg(0);
+											var Y = payloadArg(1);
+								CommUtils.outblack("x=$X, y=$Y")
 								 robotclient.moveRobot(payloadArg(0).toInt(), payloadArg(1).toInt())  
 						}
-						CommUtils.outblack("basicrobot | moving")
 						answer("moverobot", "moverobotdone", "moverobotok(1)"   )  
+						forward("ok", "ok(1)" ,name ) 
+						//genTimer( actor, state )
+					}
+					//After Lenzi Aug2002
+					sysaction { //it:State
+					}	 	 
+					 interrupthandle(edgeName="t05",targetState="stop",cond=whenEvent("alarm"),interruptedStateTransitions)
+					transition(edgeName="t06",targetState="work",cond=whenDispatch("ok"))
+				}	 
+				state("stop") { //this:State
+					action { //it:State
+						CommUtils.outblack("basicrobot | STOPPED")
+						 robotclient.pause()  
+						returnFromInterrupt(interruptedStateTransitions)
 						//genTimer( actor, state )
 					}
 					//After Lenzi Aug2002

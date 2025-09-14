@@ -131,6 +131,12 @@ class IntegratedRobotSystem:
                 if not target_name:
                     return {"status": "error", "message": "target è richiesto"}
                 return await self._handle_goto_target(target_name)
+            elif command == "pause":
+                await self.controller.pause()
+                return {"status": "success", "message": "Robot fermato"}
+            elif command == "resume":
+                await self.controller.resume()
+                return {"status": "success", "message": "Robot ripreso"}
             else:
                 return {"status": "error", "message": f"Comando sconosciuto: {command}"}
                 

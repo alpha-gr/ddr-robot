@@ -62,7 +62,7 @@ class VisionConfig:
     SLOTS_MARKER_IDS = list(SLOTS.keys())
     ROBOT_MARKER_ID = 0
 
-    TARGET_OFFSET_DISTANCE = 100
+    TARGET_OFFSET_DISTANCE = 150
     
     # Tracking settings
     MIN_MARKER_AREA = 100     # Pixel minimi per marker valido

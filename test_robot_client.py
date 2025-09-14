@@ -8,6 +8,7 @@ import time
 
 async def test_robot_control():
     uri = "ws://localhost:8765"
+    print(f"Connessione a {uri}...")
     
     try:
         async with websockets.connect(uri) as websocket:
@@ -37,6 +38,19 @@ async def test_robot_control():
             movement_id = move_response.get("movement_id")
             if movement_id:
                 print(f"🎯 Movimento iniziato con ID: {movement_id}")
+
+                # invio del messaggio di pausa
+                await asyncio.sleep(1)
+                pause_msg = {"command": "pause"}
+                await websocket.send(json.dumps(pause_msg))
+                pause_response = await websocket.recv() 
+                print(f"Pause response: {json.loads(pause_response)}")
+                await asyncio.sleep(2)  # pausa di 2 secondi
+                # invio del messaggio di ripresa
+                resume_msg = {"command": "resume"}
+                await websocket.send(json.dumps(resume_msg))
+                resume_response = await websocket.recv()
+                print(f"Resume response: {json.loads(resume_response)}")  
                 
                 # Ascolta per il messaggio moverobotdone
                 print("⏳ Aspettando completion del movimento...")

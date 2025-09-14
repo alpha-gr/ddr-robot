@@ -17,6 +17,7 @@ request( getenvmap, getenvmap(X) ).
 reply( envmap, envmap(MAP) ).  %%for getenvmap
 dispatch( cmd, cmd(MOVE) ). %MOVE = a|d|l|r|h   
 dispatch( setrobotstate, setpos(X,Y,D) ).
+dispatch( ok, ok(X) ).
 %====================================================================================
 context(ctxbasicrobot, "localhost",  "TCP", "8020").
  qactor( basicrobot, ctxbasicrobot, "it.unibo.basicrobot.Basicrobot").

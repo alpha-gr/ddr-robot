@@ -458,6 +458,22 @@ class RobotController:
         self.control_enabled = False
         await self.communication.send_stop_command()
         self.logger.info("Robot fermato")
+
+    async def pause(self):
+        """Ferma il robot temporaneamente (mantiene target)"""
+        self.control_enabled = False
+        await self.communication.send_stop_command()
+        self.logger.info("Robot in pausa (mantiene target)")
+
+    async def resume(self):
+        """Riprende il movimento verso il target attuale"""
+        if self.target_state is None:
+            self.logger.warning("Nessun target impostato, impossibile riprendere")
+            return False
+            
+        self.control_enabled = True
+        self.logger.info("Ripresa movimento verso target")
+        return True
     
     async def emergency_stop(self):
         """Stop di emergenza"""

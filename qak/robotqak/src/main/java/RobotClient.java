@@ -137,6 +137,39 @@ public class RobotClient {
     }
     
     /**
+     * Mette in pausa il robot (sincrono)
+     */
+    public void pause() throws Exception {
+        JsonObject command = new JsonObject();
+        command.addProperty("command", "pause");
+        System.out.println("robot paused");
+        
+        JsonObject response = sendCommandAndWaitResponse(command);
+        
+        if ("success".equals(response.get("status").getAsString())) {
+            logger.info("robot in pausa");
+        } else {
+            throw new RuntimeException("Errore pause: " + response.get("message").getAsString());
+        }
+    }
+    
+    /**
+     * Riattiva il robot dopo la pausa (sincrono)
+     */
+    public void resume() throws Exception {
+        JsonObject command = new JsonObject();
+        command.addProperty("command", "resume");
+        
+        JsonObject response = sendCommandAndWaitResponse(command);
+        
+        if ("success".equals(response.get("status").getAsString())) {
+            logger.info("robot riattivato");
+        } else {
+            throw new RuntimeException("Errore resume: " + response.get("message").getAsString());
+        }
+    }
+    
+    /**
      * Muove il robot e aspetta il completamento (sincrono completo)
      */
     public String moveRobot(int x, int y) throws Exception {
@@ -172,11 +205,11 @@ public class RobotClient {
      */
     private void waitForMovementCompletion(String expectedMovementId) throws Exception {
         while (true) {
-            // Aspetta messaggio per max 60 secondi (movimento lungo)
-            JsonObject message = responseQueue.poll(60, TimeUnit.SECONDS);
+            // Aspetta messaggio
+            JsonObject message = responseQueue.poll(3, TimeUnit.MINUTES);
             
             if (message == null) {
-                throw new RuntimeException("Timeout: movimento non completato entro 60 secondi");
+                throw new RuntimeException("Timeout: movimento non completato entro il timeout");
             }
             
             // Controlla se è un messaggio moverobotdone
